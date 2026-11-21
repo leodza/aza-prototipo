@@ -1,0 +1,27 @@
+# --- dependencias y entornos virtuales ---
+APP-AZA/.venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# --- ejecutable empaquetado (PyInstaller) ---
+AZA/
+
+# --- datos generados en tiempo de ejecución ---
+App-Funcional/data/
+*.db
+*.sqlite3
+
+# --- secretos ---
+*.pem
+.env
+App-Funcional/deploy/instancia.json
+
+# --- sistema y editores ---
+Thumbs.db
+.DS_Store
+desktop.ini
+~$*
+*.tmp
