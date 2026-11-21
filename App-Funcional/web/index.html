@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AZA Analyzer · Prototipo funcional</title>
+<link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<div class="login-wrap" id="pantalla-login">
+  <form class="login-card" onsubmit="entrar(event)">
+    <div class="login-logo">
+      <div class="logo">A</div>
+      <div>
+        <strong>AZA Analyzer</strong>
+        <small>Sistema Web de Monitoreo y Trazabilidad</small>
+      </div>
+    </div>
+    <div class="campo">
+      <label for="login-usuario">Operador</label>
+      <select id="login-usuario">
+        <option value="ldaza">ldaza — Leonardo Daza (operador)</option>
+        <option value="jsarabia">jsarabia — José Sarabia (supervisor)</option>
+        <option value="dparedes">dparedes — Daniel Paredes (administrador)</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="login-pin">PIN</label>
+      <input id="login-pin" type="password" inputmode="numeric" value="1234" autocomplete="off">
+      <div class="muted" style="font-size:.74rem;margin-top:5px">
+        PIN de demostración: <b>1234</b> · 5 intentos fallidos bloquean la cuenta 15 minutos
+      </div>
+    </div>
+    <button class="btn" type="submit" id="btn-login" style="width:100%">Ingresar</button>
+    <div class="login-pie" id="login-error"></div>
+  </form>
+</div>
+
+<!-- ======================= APLICACIÓN ======================= -->
+<div class="app" id="app" style="display:none">
+  <aside class="sidebar">
+    <div class="marca">
+      <div class="logo">A</div>
+      <div><strong>AZA Analyzer</strong><small>Prototipo funcional</small></div>
+    </div>
+    <nav id="nav">
+      <button data-vista="dashboard" data-roles="operador,supervisor,administrador" aria-current="page"><span class="ic">▤</span> Dashboard</button>
+      <button data-vista="historico" data-roles="operador,supervisor,administrador"><span class="ic">☰</span> Histórico</button>
+      <button data-vista="detalle" data-roles="operador,supervisor,administrador"><span class="ic">◉</span> Detalle</button>
+      <button data-vista="simulador" data-roles="operador,supervisor,administrador"><span class="ic">◎</span> Simulador</button>
+      <button data-vista="recetas" data-roles="operador,supervisor,administrador"><span class="ic">⚙</span> Recetas</button>
+      <button data-vista="usuarios" data-roles="administrador"><span class="ic">👥</span> Usuarios</button>
+      <button data-vista="auditoria" data-roles="supervisor,administrador"><span class="ic">✎</span> Auditoría</button>
+    </nav>
+    <div class="pie-side">v1.0 · prototipo<br><span id="pie-base">base de datos</span></div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="titulo">
+        <h1 id="titulo-vista">Dashboard</h1>
+        <div class="muted" style="font-size:.8rem">
+          Planta de trefilado · <span id="reloj"></span> · <span id="estado-api">conectando…</span>
+        </div>
+      </div>
+      <span class="chip ok" id="chip-motor">motor de visión</span>
+      <span class="chip info" id="chip-rol">rol</span>
+      <div class="avatar" id="avatar">··</div>
+      <div>
+        <strong style="font-size:.85rem" id="nombre-usuario">—</strong>
+        <small id="rol-usuario">—</small>
+      </div>
+      <button class="btn sec" style="min-height:34px;padding:6px 12px" onclick="salir()">Salir</button>
+    </div>
+
+    <!-- ---------------- DASHBOARD ---------------- -->
+    <section class="vista activa" id="v-dashboard">
+      <div class="banner verde" id="banner-ultima">Cargando información…</div>
+      <div class="grid kpis" style="margin-bottom:16px">
+        <div class="card kpi"><div class="etq">Inspecciones hoy</div><div class="valor" id="kpi-total">—</div><div class="delta" id="kpi-total-d">—</div></div>
+        <div class="card kpi"><div class="etq">Aprobadas</div><div class="valor" style="color:var(--verde-700)" id="kpi-aprob">—</div><div class="delta pos" id="kpi-aprob-d">—</div></div>
+        <div class="card kpi"><div class="etq">Rechazadas</div><div class="valor" style="color:var(--rojo)" id="kpi-rech">—</div><div class="delta neg" id="kpi-rech-d">—</div></div>
+        <div class="card kpi"><div class="etq">Sin receta</div><div class="valor" style="color:#8d6e00" id="kpi-sin">—</div><div class="delta" id="kpi-sin-d">—</div></div>
+      </div>
+
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Última inspección</h3>
+          <div class="sub" id="ultima-sub">—</div>
+          <div class="medidor">
+            <svg class="gauge" viewBox="0 0 120 120" id="gauge" role="img" aria-label="Ángulo medido">
+              <circle cx="60" cy="60" r="50" fill="none" stroke="#e3e8ea" stroke-width="10"/>
+              <path id="gauge-arco" d="M60 60 L60 12 A48 48 0 0 1 60 108 Z" fill="rgba(76,175,80,.20)" stroke="#4caf50" stroke-width="1.5"/>
+              <line x1="60" y1="60" x2="60" y2="14" stroke="#78909c" stroke-width="2"/>
+              <line id="gauge-aguja" x1="60" y1="60" x2="60" y2="14" stroke="#2e7d32" stroke-width="3"/>
+              <circle cx="60" cy="60" r="4" fill="#1b5e20"/>
+              <text x="60" y="84" font-size="15" text-anchor="middle" fill="#1c2427" id="gauge-texto">—</text>
+            </svg>
+            <div>
+              <div class="dato">Estado<b id="ultima-estado">—</b></div>
+              <div class="dato" style="margin-top:10px">Tolerancia<b class="mono" id="ultima-tol">—</b></div>
+              <div class="dato" style="margin-top:10px">Origen del dato<b id="ultima-origen">—</b></div>
+            </div>
+          </div>
+          <div class="escala"><div class="mi"></div><div class="pin" id="ultima-pin" style="left:50%"></div></div>
+          <div class="escala-leyenda"><span>0°</span><span class="mono" id="ultima-min">—</span><span class="mono" id="ultima-max">—</span><span>180°</span></div>
+        </div>
+
+        <div class="card">
+          <h3>Tendencia del ángulo</h3>
+          <div class="sub">Últimas 20 inspecciones registradas</div>
+          <svg class="spark" viewBox="0 0 320 120" preserveAspectRatio="none" id="spark" role="img"
+               aria-label="Gráfico de tendencia del ángulo">
+            <polyline id="spark-linea" fill="none" stroke="#2e7d32" stroke-width="2.4" points=""/>
+            <circle id="spark-punto" cx="0" cy="0" r="3.6" fill="#1b5e20"/>
+          </svg>
+          <div class="leyenda-graf"><span>Rango 0°–180° · verde = aprobada · rojo = rechazada</span></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>Últimos registros</h3>
+        <div class="sub" id="recientes-sub">—</div>
+        <table><thead><tr><th>#</th><th>Fecha y hora</th><th>Receta</th><th>Lote</th>
+          <th class="num">Ángulo</th><th>Estado</th><th>Origen</th></tr></thead>
+          <tbody id="tabla-recientes"></tbody></table>
+      </div>
+    </section>
+
+    <!-- ---------------- HISTÓRICO ---------------- -->
+    <section class="vista" id="v-historico">
+      <div class="card" style="margin-bottom:16px">
+        <h3>Consulta histórica</h3>
+        <div class="sub">Filtros combinables · el operador solo ve el turno en curso</div>
+        <div class="filtros" style="grid-template-columns:repeat(6,minmax(0,1fr))">
+          <div><label for="f-desde">Desde</label><input id="f-desde" type="date"></div>
+          <div><label for="f-hasta">Hasta</label><input id="f-hasta" type="date"></div>
+          <div><label for="f-receta">Receta</label><select id="f-receta"><option value="">Todas</option></select></div>
+          <div><label for="f-lote">Lote</label><select id="f-lote"><option value="">Todos</option></select></div>
+          <div><label for="f-estado">Estado</label>
+            <select id="f-estado"><option value="">Todos</option><option value="aprobado">Aprobada</option>
+              <option value="rechazado">Rechazada</option><option value="sin_receta">Sin receta</option></select></div>
+          <div><label for="f-orden">Ordenar por</label>
+            <select id="f-orden" onchange="cargarHistorico(1)">
+              <option value="lote">Lote → batch</option>
+              <option value="fecha">Más recientes</option>
+            </select></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn" onclick="cargarHistorico(1)">Aplicar filtros</button>
+          <button class="btn sec" onclick="limpiarFiltros()">Limpiar</button>
+          <button class="btn sec" onclick="exportarCSV()">Exportar CSV</button>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <div><h3>Resultados</h3><div class="sub" id="hist-contador">—</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sec" style="min-height:32px;padding:5px 12px" onclick="paginaHist(-1)">◀</button>
+            <button class="btn sec" style="min-height:32px;padding:5px 12px" onclick="paginaHist(1)">▶</button>
+          </div>
+        </div>
+        <table><thead><tr><th>#</th><th>Fecha y hora</th><th>Receta</th><th>Lote</th>
+          <th>Operador</th><th class="num">Ángulo</th><th class="num">Tolerancia</th><th>Estado</th></tr></thead>
+          <tbody id="tabla-historico"></tbody></table>
+      </div>
+    </section>
+
+    <!-- ---------------- DETALLE ---------------- -->
+    <section class="vista" id="v-detalle">
+      <div class="banner azul" id="detalle-aviso">Selecciona una inspección desde el dashboard, el histórico o el simulador.</div>
+      <div class="grid dos-col" id="detalle-grid" style="display:none">
+        <div class="card">
+          <h3 id="det-titulo">Inspección</h3>
+          <div class="sub" id="det-sub">—</div>
+          <dl class="lista-def" id="det-datos" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px;margin:0"></dl>
+          <div class="banner ambar" style="margin-top:16px">
+            El registro es <strong>inmutable</strong>: conserva los límites de la receta vigentes al momento
+            de la inspección, aunque la receta se modifique después.
+          </div>
+        </div>
+        <div class="card">
+          <h3>Imagen del diagnóstico</h3>
+          <div class="sub" id="det-img-sub">—</div>
+          <div id="det-imagen" style="border-radius:var(--radio-sm);overflow:hidden;border:1px solid var(--gris-200);background:#0f1512;min-height:200px;display:grid;place-items:center">
+            <span class="muted" style="font-size:.8rem">sin imagen</span>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="det-tecnico-card" style="margin-top:16px" hidden>
+        <h3>Trazabilidad técnica</h3>
+        <div class="sub">Datos que el pipeline y la base conservan de esta inspección</div>
+        <dl id="det-tecnico"></dl>
+        <h3 style="margin-top:18px">Bitácora del registro</h3>
+        <div class="sub">Eventos de auditoría asociados (solo lectura)</div>
+        <div class="pasos" id="det-auditoria"></div>
+      </div>
+    </section>
+
+    <!-- ---------------- SIMULADOR ---------------- -->
+    <section class="vista" id="v-simulador">
+      <div class="banner morado">
+        <strong>Simulador de cámara.</strong> Genera una ráfaga de 16 imágenes BMP —como haría la cámara al
+        recibir el trigger— y la analiza con el <strong>mismo pipeline de visión</strong> de la aplicación de
+        planta. El ángulo que se guarda es medido sobre la imagen, no ingresado a mano.
+      </div>
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Disparar una inspección</h3>
+          <div class="sub">El resultado se registra y aparece en el dashboard</div>
+          <div class="filtros" style="grid-template-columns:1fr 1fr">
+            <div><label for="sim-receta">Receta</label><select id="sim-receta"></select></div>
+            <div><label for="sim-modo">Condición</label>
+              <select id="sim-modo">
+                <option value="dentro">Normal (la velocidad afecta el ángulo)</option>
+                <option value="aleatorio">Aleatorio (puede salir bien o mal)</option>
+                <option value="fuera">Forzar rechazo</option>
+              </select></div>
+          </div>
+          <div style="margin-top:14px">
+            <label for="sim-velocidad">Velocidad del tren: <b id="sim-velocidad-valor">12,0</b> m/min</label>
+            <input id="sim-velocidad" type="range" min="4" max="30" step="0.5" value="12"
+                   oninput="actualizarVelocidad()"
+                   style="width:100%;accent-color:var(--verde-700)">
+            <div class="muted" style="font-size:.76rem;margin-top:4px" id="sim-velocidad-ayuda">
+              Velocidad nominal 12,0 m/min · cada m/min agrega ≈2,8° al ángulo
+            </div>
+          </div>
+          <button class="btn" style="margin-top:14px;width:100%" id="btn-simular" onclick="simular()">
+            ◎ Simular ráfaga de cámara
+          </button>
+          <div id="sim-estado" class="muted" style="font-size:.82rem;margin-top:10px;text-align:center">—</div>
+        </div>
+        <div class="card">
+          <h3>Resultado de la medición</h3>
+          <div class="sub" id="sim-sub">Sin ejecuciones todavía</div>
+          <div id="sim-resultado" style="font-size:.86rem">
+            <div class="muted">Presiona el botón para capturar y analizar una ráfaga.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px" id="sim-imagen-card" hidden>
+        <h3>Diagnóstico generado por el pipeline</h3>
+        <div class="sub">resultado_analisis.png · círculo detectado y sector angular</div>
+        <img id="sim-imagen" alt="Diagnóstico del análisis de la ráfaga"
+             style="max-width:100%;border-radius:var(--radio-sm);border:1px solid var(--gris-200)">
+      </div>
+    </section>
+
+    <!-- ---------------- RECETAS ---------------- -->
+    <section class="vista" id="v-recetas">
+      <div class="banner morado">
+        <strong>Gestión de recetas.</strong> Cambiar una tolerancia no altera los registros ya evaluados:
+        cada inspección conserva los límites con los que fue juzgada.
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div><h3>Recetas configuradas</h3><div class="sub">Solo el administrador puede crear o editar</div></div>
+        </div>
+        <table><thead><tr><th class="num">ID</th><th>Receta</th><th class="num">Mínimo</th>
+          <th class="num">Máximo</th><th>Espesor</th><th>Material</th><th class="num">Registros</th>
+          <th>Estado</th></tr></thead>
+          <tbody id="tabla-recetas"></tbody></table>
+        <div id="form-receta" hidden style="margin-top:18px;border-top:1px solid var(--gris-200);padding-top:14px">
+          <h3 style="margin-bottom:10px">Nueva receta</h3>
+          <div class="filtros" style="grid-template-columns:1.3fr .8fr .8fr .9fr 1.7fr">
+            <div><label for="r-nombre">Nombre</label><input id="r-nombre" placeholder="A-40"></div>
+            <div><label for="r-min">Mín. (°)</label><input id="r-min" type="number" step="0.1" value="45"></div>
+            <div><label for="r-max">Máx. (°)</label><input id="r-max" type="number" step="0.1" value="90"></div>
+            <div><label for="r-esp">Espesor (mm)</label><input id="r-esp" type="number" step="0.1" value="6"></div>
+            <div><label for="r-mat">Material</label><select id="r-mat"></select></div>
+          </div>
+          <button class="btn" style="margin-top:12px" onclick="crearReceta()">Guardar receta</button>
+          <span class="muted" id="receta-msg" style="margin-left:10px;font-size:.82rem"></span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px" id="card-materiales">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+          <div><h3>Catálogo de materiales</h3>
+            <div class="sub">El trazado no es solo acero: familias y tipos de material</div></div>
+        </div>
+        <table><thead><tr><th class="num">ID</th><th>Familia</th><th>Tipo</th><th>Descripción</th>
+          <th class="num">Recetas</th></tr></thead>
+          <tbody id="tabla-materiales"></tbody></table>
+        <div id="form-material" hidden style="margin-top:16px;border-top:1px solid var(--gris-200);padding-top:14px">
+          <h3 style="margin-bottom:10px">Agregar material</h3>
+          <div class="form-usuario" style="grid-template-columns:1fr 1.2fr 1.8fr auto">
+            <div><label for="m-familia">Familia</label>
+              <select id="m-familia">
+                <option>Acero</option><option>Cobre</option><option>Latón</option>
+                <option>Aluminio</option><option>Bronce</option><option>Aleación</option>
+              </select></div>
+            <div><label for="m-tipo">Tipo</label><input id="m-tipo" placeholder="SAE 1020"></div>
+            <div><label for="m-desc">Descripción</label><input id="m-desc" placeholder="Acero al carbono"></div>
+            <div><button class="btn" onclick="crearMaterial()">+ Agregar</button></div>
+          </div>
+          <div class="muted" id="material-msg" style="font-size:.82rem;margin-top:8px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- USUARIOS ---------------- -->
+    <section class="vista" id="v-usuarios">
+      <div class="card" style="margin-bottom:16px" id="card-nuevo-usuario">
+        <h3>Agregar usuario</h3>
+        <div class="sub">Solo el administrador puede crear, desactivar o borrar cuentas</div>
+        <div class="form-usuario">
+          <div><label for="u-username">Usuario</label><input id="u-username" placeholder="mlopez"></div>
+          <div><label for="u-nombre">Nombre completo</label><input id="u-nombre" placeholder="María López"></div>
+          <div><label for="u-rol">Rol</label>
+            <select id="u-rol">
+              <option value="operador">Operador</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="administrador">Administrador</option>
+            </select></div>
+          <div><label for="u-pin">PIN</label><input id="u-pin" type="password" inputmode="numeric" placeholder="1234"></div>
+          <div><button class="btn" onclick="crearUsuario()">+ Agregar</button></div>
+        </div>
+        <div class="muted" id="usuario-msg" style="font-size:.82rem;margin-top:8px"></div>
+      </div>
+
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Usuarios</h3>
+          <div class="sub" id="usuarios-sub">—</div>
+          <table><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="tabla-usuarios"></tbody></table>
+        </div>
+        <div class="card">
+          <h3>Matriz de permisos (RBAC)</h3>
+          <div class="sub">Verificada en el servidor en cada endpoint</div>
+          <table><thead><tr><th>Acción</th><th>Oper.</th><th>Superv.</th><th>Admin</th></tr></thead>
+            <tbody>
+              <tr><td>Ver última inspección</td><td>✔</td><td>✔</td><td>✔</td></tr>
+              <tr><td>Consultar histórico</td><td>Solo hoy</td><td>✔</td><td>✔</td></tr>
+              <tr><td>Simular / registrar inspección</td><td>✔</td><td>✔</td><td>✔</td></tr>
+              <tr><td>Ver auditoría</td><td>—</td><td>✔</td><td>✔</td></tr>
+              <tr><td>Crear recetas</td><td>—</td><td>—</td><td>✔</td></tr>
+              <tr><td>Gestionar usuarios</td><td>—</td><td>—</td><td>✔</td></tr>
+            </tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- AUDITORÍA ---------------- -->
+    <section class="vista" id="v-auditoria">
+      <div class="card">
+        <h3>Bitácora de auditoría</h3>
+        <div class="sub">Toda creación, modificación o inicio de sesión queda registrado</div>
+        <table><thead><tr><th>Fecha</th><th>Acción</th><th>Entidad</th><th>ID</th><th>Detalle</th></tr></thead>
+          <tbody id="tabla-auditoria"></tbody></table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
