@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AZA Analyzer
+Comment=Sistema de inspeccion visual AZA
+Exec=/home/aza/Codigos_aza/App-aza/APP-AZA/scripts/start-aza.sh
+Icon=/home/aza/Codigos_aza/App-aza/APP-AZA/assets/logo.png
+Terminal=false
+Categories=Utility;Engineering;
+StartupNotify=true

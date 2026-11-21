@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.env/
+venv/
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Database & logs
+data/*.db
+data/*.sqlite
+*.log
+
+# Runtime output
+CAPTURAS/
+RESULTADO_ANALISIS/

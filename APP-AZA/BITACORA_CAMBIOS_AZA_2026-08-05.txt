@@ -1,0 +1,88 @@
+BITACORA DE CAMBIOS - APP AZA
+Fecha: 2026-08-05
+
+Objetivo general:
+Mejorar la estabilidad de la app en el Jetson, evitar sobrecargas por falta de memoria o almacenamiento, y agregar controles seguros para administrar las rafagas guardadas.
+
+1. Revision inicial de permisos y borrado
+- Se reviso si la app tenia restricciones para borrar carpetas o archivos.
+- Se confirmo que la app no tenia una opcion manual para eliminar archivos o carpetas de resultados.
+- Se encontro que solo existia borrado interno automatico para descartar rafagas incompletas.
+- Se confirmo que la gestion de usuarios ya tenia restricciones para que solo admin pueda borrar usuarios.
+
+2. Opcion manual para borrar archivos/carpetas
+- Se agrego una opcion en el menu principal: "Borrar Archivo/Carpeta".
+- La opcion queda habilitada solo para usuarios admin.
+- La app pide confirmacion antes de borrar.
+- Se limito el borrado al directorio de resultados configurado, para evitar borrar rutas fuera del area de trabajo.
+- Se impidio borrar la carpeta raiz completa de resultados.
+- Se agregaron pruebas para validar:
+  - Borrado de archivo dentro del directorio de resultados.
+  - Borrado de carpeta dentro del directorio de resultados.
+  - Rechazo de borrado de la raiz de resultados.
+  - Rechazo de rutas fuera del directorio de resultados.
+
+3. Limpieza automatica por limite de almacenamiento
+- Se implemento un limite de 40 GB para la carpeta de rafagas.
+- Se creo una rutina de retencion que calcula el tamano total del directorio.
+- Si el uso supera 40 GB, la app identifica las carpetas Trigger_* mas antiguas.
+- La app muestra exactamente que carpetas se van a borrar y cuanto pesa cada una.
+- El borrado solo ocurre si el usuario autoriza la accion.
+- La revision se ejecuta periodicamente cada 5 minutos.
+- Tambien se ejecuta despues de terminar el analisis de una rafaga.
+- La limpieza no corre durante la captura o analisis activo de una rafaga.
+
+4. Barra visual de almacenamiento
+- Se agrego una mini barra en la franja inferior de la app.
+- La barra muestra el uso de rafagas contra el limite de 40 GB.
+- Texto mostrado: "RAFAGAS: usado / 40.0 GB".
+- Colores:
+  - Verde: uso normal.
+  - Amarillo: desde 85%.
+  - Rojo: 100% o mas.
+- La barra se actualiza al abrir la app, cada 30 segundos y despues de procesos de limpieza.
+
+5. Revision de ubicaciones de rafagas
+- Se encontraron rafagas antiguas en:
+  /home/aza/Codigos_aza/App-aza/APP-AZA/RESULTADOS_TRIGGER
+- Se confirmo que la carpeta actual por defecto de la app es:
+  /home/aza/Desktop/RESULTADOS_ANALISIS_SALIDA_ROLLO
+- Se detecto que esta carpeta tenia un volumen alto de datos, por lo que se recomendo no crear ZIP local si no hay espacio suficiente.
+- Se sugirio usar rsync por SSH para copiar las rafagas a otro computador sin borrar ni mover originales.
+
+6. Refactor y gestion de memoria
+- Se revisaron puntos de riesgo de memoria en captura y analisis.
+- Se cambio la captura de rafagas para que cada frame se escriba inmediatamente a disco.
+- Antes, la app acumulaba todos los frames de una rafaga en memoria antes de guardarlos.
+- Este cambio reduce el pico de memoria durante capturas largas.
+- Se optimizo el contador de carpetas Trigger_*:
+  - Antes escaneaba todo el historico en cada nueva rafaga.
+  - Ahora calcula el ultimo contador al iniciar y luego incrementa en memoria.
+- Se refactorizo el pipeline antiguo para no acumular todas las imagenes procesadas en una lista.
+- Ahora el pipeline lee una imagen a la vez en una segunda pasada.
+- Se elimino una variable no usada en dashboard.
+- Se corrigio un bug funcional en is_optimal_angle:
+  - Ahora considera optimo el rango 0 a 90 grados, consistente con las pruebas existentes.
+
+7. Validaciones realizadas
+- Se compilaron los modulos modificados con py_compile.
+- Se ejecutaron las pruebas completas del proyecto.
+- Resultado final:
+  49 pruebas pasaron correctamente.
+
+Archivos principales modificados:
+- src/ui/app.py
+- src/results_export.py
+- src/results_retention.py
+- src/workers/sequence.py
+- src/vision/pipeline.py
+- src/vision/sequence_analysis.py
+- src/ui/dashboard.py
+- tests/test_results_export.py
+- tests/test_results_retention.py
+- tests/test_sequence_analysis.py
+
+Notas importantes:
+- No se eliminaron ni movieron rafagas originales durante estas tareas.
+- Para exportar todas las rafagas, se recomienda usar SSH/rsync hacia otro computador o unidad externa con espacio suficiente.
+- Crear un ZIP local completo puede llenar el disco del Jetson si no hay espacio libre suficiente.
