@@ -1,0 +1,69 @@
+# AZA Analyzer · despliegue en la nube (AWS Academy Learner Lab)
+#
+#   docker compose up -d --build
+#
+# Servicios:
+#   db     PostgreSQL 16      base estructurada: usuarios, lotes, materiales…
+#   pgweb  explorador de BD   para las evidencias del informe
+#   app    API + interfaz     guarda las imágenes en S3 (compatible con MinIO)
+#
+# Nota sobre el almacenamiento: MinIO dejó de distribuir imágenes y binarios
+# comunitarios (solo existe AIStor, con licencia). Se usa el S3 nativo de AWS,
+# que habla el mismo protocolo. Para volver a un MinIO/SeaweedFS propio basta
+# con definir AZA_S3_ENDPOINT=http://host:9000 en .env; el código no cambia.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: aza-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aza}
+      POSTGRES_USER: ${POSTGRES_USER:-aza}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-azaclave2026}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aza} -d ${POSTGRES_DB:-aza}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: aza-pgweb
+    restart: unless-stopped
+    environment:
+      PGWEB_DATABASE_URL: postgres://${POSTGRES_USER:-aza}:${POSTGRES_PASSWORD:-azaclave2026}@db:5432/${POSTGRES_DB:-aza}?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+
+  app:
+    build: .
+    container_name: aza-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AZA_DB_URL: postgresql+psycopg://${POSTGRES_USER:-aza}:${POSTGRES_PASSWORD:-azaclave2026}@db:5432/${POSTGRES_DB:-aza}
+      AZA_ALMACEN: s3
+      AZA_S3_ENDPOINT: ${AZA_S3_ENDPOINT:-}
+      AZA_S3_BUCKET: ${AZA_S3_BUCKET:-aza-capturas}
+      AZA_S3_REGION: ${AZA_S3_REGION:-us-east-1}
+      AZA_SECRETO: ${AZA_SECRETO:-cambiar-esta-clave}
+      AWS_DEFAULT_REGION: ${AZA_S3_REGION:-us-east-1}
+      TZ: America/Santiago
+    volumes:
+      - capturas:/app/data/capturas
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
+  capturas:

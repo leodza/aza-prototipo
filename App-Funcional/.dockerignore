@@ -1,0 +1,8 @@
+﻿data/
+evidencias/
+tests/
+_capturar.py
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
