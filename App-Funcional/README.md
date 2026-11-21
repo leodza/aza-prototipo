@@ -224,3 +224,27 @@ El código no cambia: solo el archivo de configuración.
   simulador recaptura automáticamente con un pequeño ajuste.
 - El modelo de velocidad es una aproximación lineal (2,8° por m/min); en planta la relación
   se calibraría con mediciones reales.
+
+---
+
+## 10. Control de versiones (Git)
+
+El proyecto es un repositorio Git con **12 commits** agrupados por módulo (modelo, simulador,
+API, interfaz, pruebas, despliegue, evidencias). Git quedó instalado en modo portátil y
+agregado al `PATH` del usuario: `git` funciona desde cualquier terminal.
+
+```powershell
+cd "C:\Users\rootg\Desktop\Proyecto Robotic Systems Chile"
+git log --oneline --graph --decorate     # historial
+git status                               # qué falta por confirmar
+git add . ; git commit -m "feat: ..."    # nuevo cambio
+```
+
+Excluidos por `.gitignore`: `APP-AZA/.venv/`, el ejecutable `AZA/`, `App-Funcional/data/`,
+las claves `*.pem` y los archivos `.env`.
+
+Evidencia del historial: `evidencias/27_git_commits.png`.
+
+> Para publicarlo en GitHub (y que el profesor vea los commits en línea):
+> crear un repositorio vacío y ejecutar
+> `git remote add origin https://github.com/USUARIO/aza-prototipo.git && git push -u origin main`.
