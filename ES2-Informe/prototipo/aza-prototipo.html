@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AZA · Prototipo interactivo — Sistema Web de Monitoreo y Trazabilidad</title>
+<style>
+  :root{
+    /* ---- tokens de diseño (guía visual, sección 2.1.3.6) ---- */
+    --verde-900:#12300f; --verde-800:#1b5e20; --verde-700:#2e7d32; --verde-600:#388e3c;
+    --verde-500:#4caf50; --verde-100:#e8f5e9; --verde-50:#f4fbf5;
+    --azul:#1565c0; --azul-100:#e3f2fd; --rojo:#c62828; --rojo-100:#ffebee;
+    --ambar:#f9a825; --ambar-100:#fff8e1; --morado:#4527a0; --morado-100:#ede7f6;
+    --gris-900:#1c2427; --gris-800:#2b3539; --gris-700:#37474f; --gris-500:#78909c;
+    --gris-300:#cfd8dc; --gris-200:#e3e8ea; --gris-100:#f1f4f5; --blanco:#ffffff;
+    --radio:10px; --radio-sm:6px;
+    --sombra:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);
+    --sombra-lg:0 8px 24px rgba(16,24,40,.12);
+    --fuente:"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    --mono:"Cascadia Mono", Consolas, "Courier New", monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}
+  body{
+    font-family:var(--fuente); background:var(--gris-100); color:var(--gris-900);
+    font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--verde-700)}
+  h1,h2,h3,h4{margin:0;font-weight:700;letter-spacing:-.01em}
+  h1{font-size:1.55rem} h2{font-size:1.2rem} h3{font-size:1rem}
+  .muted{color:var(--gris-500)}
+  .mono{font-family:var(--mono)}
+  :focus-visible{outline:3px solid var(--verde-500); outline-offset:2px; border-radius:4px}
+
+  /* ---- layout general ---- */
+  .app{display:flex;min-height:100vh}
+  .sidebar{
+    width:236px;flex:0 0 236px;background:var(--verde-800);color:#dcedc8;
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  }
+  .marca{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+  .marca .logo{
+    width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#4caf50,#1b5e20);
+    display:grid;place-items:center;font-weight:800;color:#fff;font-size:1.1rem
+  }
+  .marca small{display:block;font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+  .marca strong{font-size:.95rem;color:#fff}
+  nav{padding:12px 10px;display:flex;flex-direction:column;gap:4px;flex:1;overflow:auto}
+  nav button{
+    all:unset;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;
+    color:#dcedc8;font-size:.92rem;cursor:pointer;font-weight:600
+  }
+  nav button .ic{width:20px;text-align:center;opacity:.9}
+  nav button:hover{background:rgba(255,255,255,.09)}
+  nav button[aria-current="page"]{background:var(--blanco);color:var(--verde-800)}
+  .pie-side{padding:14px 16px;font-size:.72rem;opacity:.7;border-top:1px solid rgba(255,255,255,.12)}
+
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{
+    background:var(--blanco);border-bottom:1px solid var(--gris-200);
+    display:flex;align-items:center;gap:16px;padding:12px 22px;position:sticky;top:0;z-index:20
+  }
+  .topbar .titulo{flex:1;min-width:0}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+    font-size:.76rem;font-weight:700;letter-spacing:.02em;white-space:nowrap
+  }
+  .chip.ok{background:var(--verde-100);color:var(--verde-800)}
+  .chip.no{background:var(--rojo-100);color:var(--rojo)}
+  .chip.sin{background:var(--ambar-100);color:#8d6e00}
+  .chip.info{background:var(--azul-100);color:var(--azul)}
+  .avatar{
+    width:38px;height:38px;border-radius:50%;background:var(--verde-700);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:.85rem
+  }
+  .avatar+div small{display:block;font-size:.72rem;color:var(--gris-500)}
+
+  .vista{padding:22px;display:none;flex:1;min-width:0}
+  .vista.activa{display:block}
+
+  /* ---- tarjetas y rejillas ---- */
+  .grid{display:grid;gap:16px;min-width:0}
+  .grid>*{min-width:0}
+  .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .dos-col{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}
+  .card{
+    background:var(--blanco);border:1px solid var(--gris-200);border-radius:var(--radio);
+    box-shadow:var(--sombra);padding:16px 18px;min-width:0;max-width:100%
+  }
+  .banner{overflow-wrap:anywhere}
+  .banner>*{min-width:0}
+  .card h3{margin-bottom:2px}
+  .card .sub{font-size:.78rem;color:var(--gris-500);margin-bottom:10px}
+  .kpi .valor{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+  .kpi .etq{font-size:.78rem;color:var(--gris-500);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+  .kpi .delta{font-size:.76rem;font-weight:700;margin-top:6px}
+  .delta.pos{color:var(--verde-700)} .delta.neg{color:var(--rojo)}
+
+  /* ---- tablas ---- */
+  table{width:100%;border-collapse:collapse;font-size:.87rem}
+  thead th{
+    text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--gris-500);padding:8px 10px;border-bottom:2px solid var(--gris-200);white-space:nowrap
+  }
+  tbody td{padding:10px;border-bottom:1px solid var(--gris-100);vertical-align:middle}
+  tbody tr:hover{background:var(--verde-50)}
+  .num{text-align:right;font-family:var(--mono)}
+
+  /* ---- formularios y filtros ---- */
+  .filtros{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;align-items:end}
+  label{display:block;font-size:.74rem;font-weight:700;color:var(--gris-700);
+        text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+  input,select{
+    width:100%;padding:9px 11px;border:1px solid var(--gris-300);border-radius:var(--radio-sm);
+    font:inherit;font-size:.88rem;background:var(--blanco);color:var(--gris-900)
+  }
+  input:focus,select:focus{border-color:var(--verde-500);outline:none;box-shadow:0 0 0 3px rgba(76,175,80,.18)}
+  .btn{
+    all:unset;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:10px 16px;border-radius:var(--radio-sm);font-weight:700;font-size:.88rem;
+    cursor:pointer;background:var(--verde-700);color:#fff;min-height:40px
+  }
+  .btn:hover{background:var(--verde-600)}
+  .btn.sec{background:var(--blanco);color:var(--verde-800);border:1px solid var(--gris-300)}
+  .btn.sec:hover{background:var(--verde-50)}
+  .btn.peligro{background:var(--rojo)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  /* ---- login ---- */
+  .login-wrap{min-height:100vh;display:grid;place-items:center;
+    background:radial-gradient(1200px 600px at 50% -10%, #1b5e20 0%, #12300f 55%, #0b1a09 100%);padding:24px}
+  .login-card{width:100%;max-width:430px;background:var(--blanco);border-radius:16px;
+    box-shadow:var(--sombra-lg);padding:30px 30px 26px}
+  .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .login-logo .logo{width:52px;height:52px;border-radius:13px;
+    background:linear-gradient(135deg,#4caf50,#1b5e20);display:grid;place-items:center;
+    color:#fff;font-weight:800;font-size:1.5rem}
+  .login-logo strong{font-size:1.1rem}
+  .login-logo small{display:block;font-size:.75rem;color:var(--gris-500)}
+  .campo{margin-bottom:14px}
+  .login-pie{margin-top:16px;font-size:.75rem;color:var(--gris-500);text-align:center}
+
+  /* ---- medidor de ángulo ---- */
+  .medidor{display:flex;align-items:center;gap:22px}
+  .gauge{width:150px;height:150px;flex:0 0 150px}
+  .gauge text{font-family:var(--fuente);font-weight:800}
+  .medidor .dato{font-size:.8rem;color:var(--gris-500)}
+  .medidor .dato b{display:block;font-size:1.05rem;color:var(--gris-900);font-weight:700}
+
+  /* ---- barra de progreso / tolerancia ---- */
+  .escala{position:relative;height:12px;border-radius:999px;background:var(--gris-200);margin:14px 0 6px;overflow:hidden}
+  .escala .mi{position:absolute;inset:0 50% 0 0;background:linear-gradient(90deg,#4caf50,#2e7d32)}
+  .escala .fin{position:absolute;inset:0 0 0 50%;background:var(--rojo-100)}
+  .escala .pin{position:absolute;top:-4px;width:3px;height:20px;background:var(--gris-900);border-radius:2px}
+  .escala-leyenda{display:flex;justify-content:space-between;font-size:.72rem;color:var(--gris-500)}
+
+  /* ---- badges de estado ---- */
+  .estado{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+    font-size:.74rem;font-weight:800;letter-spacing:.02em}
+  .estado::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  .estado.aprobado{background:var(--verde-100);color:var(--verde-800)}
+  .estado.rechazado{background:var(--rojo-100);color:var(--rojo)}
+  .estado.sin-receta{background:var(--ambar-100);color:#8d6e00}
+
+  /* ---- mini gráfico de tendencia ---- */
+  .spark{width:100%;height:120px;display:block}
+  .leyenda-graf{display:flex;gap:18px;font-size:.75rem;color:var(--gris-500);margin-top:6px}
+  .leyenda-graf i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+
+  /* ---- otros ---- */
+  .banner{
+    display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:var(--radio-sm);
+    background:var(--azul-100);border-left:4px solid var(--azul);font-size:.86rem;margin-bottom:16px
+  }
+  .banner.verde{background:var(--verde-100);border-left-color:var(--verde-700)}
+  .banner.ambar{background:var(--ambar-100);border-left-color:var(--ambar)}
+  .banner.morado{background:var(--morado-100);border-left-color:var(--morado)}
+  .lista-def dt{font-weight:700;font-size:.82rem;color:var(--gris-700);margin-top:10px}
+  .lista-def dd{margin:2px 0 0;font-size:.9rem}
+  .pasos{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  .paso{display:flex;gap:10px;font-size:.86rem}
+  .paso .n{flex:0 0 22px;height:22px;border-radius:50%;background:var(--verde-100);
+    color:var(--verde-800);display:grid;place-items:center;font-weight:800;font-size:.74rem}
+  .cambios{display:flex;flex-direction:column;gap:10px}
+  .cambio{display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;
+    padding:10px;border-radius:var(--radio-sm);background:var(--gris-100);font-size:.86rem}
+  .cambio .v{font-weight:800;color:var(--verde-800);font-size:.78rem}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:700;
+    background:var(--gris-200);color:var(--gris-700);margin-left:6px}
+  .pill.v2{background:var(--verde-100);color:var(--verde-800)}
+
+  /* ---- responsive (2.1.3.6) ---- */
+  @media (max-width:1180px){
+    .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .dos-col{grid-template-columns:1fr}
+    .filtros{grid-template-columns:repeat(3,minmax(0,1fr))}
+  }
+  @media (max-width:860px){
+    .app{flex-direction:column}
+    .sidebar{width:100%;flex:none;height:auto;position:static;flex-direction:column;max-width:100vw}
+    nav{flex-direction:row;overflow-x:auto;padding:8px;gap:6px;max-width:100vw;
+        scrollbar-width:none;-webkit-overflow-scrolling:touch}
+    nav::-webkit-scrollbar{display:none}
+    nav button{white-space:nowrap;padding:8px 12px;font-size:.86rem}
+    .pie-side{display:none}
+    .topbar{padding:10px 14px;flex-wrap:wrap;row-gap:8px;gap:8px}
+    .topbar .titulo{flex:1 1 100%;order:1;min-width:0}
+    .topbar .titulo h1{font-size:1.2rem}
+    .topbar .titulo .muted{font-size:.74rem;white-space:normal}
+    .topbar .chip{order:2;font-size:.7rem;padding:4px 9px}
+    .topbar .avatar{order:3;width:32px;height:32px;font-size:.75rem}
+    .topbar .avatar+div{order:4;min-width:0}
+    .topbar .avatar+div strong{font-size:.78rem;display:block}
+    .topbar .avatar+div small{font-size:.68rem}
+    .vista{padding:14px}
+    .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .filtros{grid-template-columns:1fr 1fr}
+    .medidor{flex-direction:row;gap:14px;flex-wrap:wrap}
+    .gauge{width:110px;height:110px;flex:0 0 110px}
+    .banner{flex-wrap:wrap;font-size:.82rem}
+    .card{padding:14px}
+    .grid{gap:12px}
+    table{font-size:.82rem}
+    thead{display:none}
+    tbody td{display:block;border:none;padding:3px 0}
+    tbody tr{display:block;border:1px solid var(--gris-200);border-radius:var(--radio-sm);
+      padding:10px 12px;margin-bottom:10px;background:var(--blanco)}
+    tbody td::before{content:attr(data-th) " ";font-weight:800;font-size:.7rem;
+      text-transform:uppercase;letter-spacing:.05em;color:var(--gris-500);display:block}
+    .num{text-align:left}
+    .login-card{padding:22px 20px}
+  }
+  @media (max-width:520px){
+    .kpis{grid-template-columns:1fr}
+    .filtros{grid-template-columns:1fr}
+    h1{font-size:1.28rem}
+    .login-logo strong{font-size:1rem}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ============================ LOGIN ============================ -->
+<div class="login-wrap" id="vista-login">
+  <form class="login-card" onsubmit="entrar(event)">
+    <div class="login-logo">
+      <div class="logo">A</div>
+      <div>
+        <strong>AZA Analyzer</strong>
+        <small>Sistema Web de Monitoreo y Trazabilidad</small>
+      </div>
+    </div>
+    <div class="campo">
+      <label for="usuario">Operador</label>
+      <select id="usuario">
+        <option>ldaza (Leonardo Daza · Operador)</option>
+        <option>jsarabia (José Sarabia · Supervisor)</option>
+        <option>dparedes (Daniel Paredes · Administrador)</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="pin">PIN</label>
+      <input id="pin" type="password" inputmode="numeric" value="1234" autocomplete="off"
+             aria-describedby="pin-ayuda">
+      <div id="pin-ayuda" class="muted" style="font-size:.74rem;margin-top:5px">
+        6 dígitos · el PIN nunca se muestra en pantalla
+      </div>
+    </div>
+    <button class="btn" type="submit" style="width:100%">Ingresar</button>
+    <div class="login-pie">
+      Prototipo académico · Robotic Systems Chile · ES2 Diseño
+    </div>
+  </form>
+</div>
+
+<!-- ============================ APLICACIÓN ============================ -->
+<div class="app" id="app" style="display:none">
+  <aside class="sidebar">
+    <div class="marca">
+      <div class="logo">A</div>
+      <div><strong>AZA Analyzer</strong><small>Monitoreo y trazabilidad</small></div>
+    </div>
+    <nav id="nav">
+      <button data-vista="dashboard" aria-current="page"><span class="ic">▤</span> Dashboard</button>
+      <button data-vista="historico"><span class="ic">☰</span> Histórico</button>
+      <button data-vista="detalle"><span class="ic">◉</span> Detalle</button>
+      <button data-vista="recetas"><span class="ic">⚙</span> Recetas</button>
+      <button data-vista="usuarios"><span class="ic">👥</span> Usuarios</button>
+      <button data-vista="feedback"><span class="ic">✎</span> Feedback</button>
+    </nav>
+    <div class="pie-side">v2.0 · prototipo navegable<br>Uso académico</div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="titulo">
+        <h1 id="titulo-vista">Dashboard</h1>
+        <div class="muted" style="font-size:.8rem">Planta de trefilado · turno A · <span id="reloj"></span></div>
+      </div>
+      <span class="chip no" id="chip-cam">Cámara sin conexión</span>
+      <span class="chip ok">BD conectada</span>
+      <div class="avatar" title="Sesión activa">LD</div>
+      <div>
+        <strong style="font-size:.85rem">Leonardo Daza</strong>
+        <small>Operador · turno A</small>
+      </div>
+    </div>
+
+    <!-- ---------------- DASHBOARD ---------------- -->
+    <section class="vista activa" id="v-dashboard">
+      <div class="banner verde">
+        <strong>Última inspección registrada:</strong> hace 12 segundos · lote <span class="mono">L-2026-0412</span>
+        · receta <span class="mono">A-36</span> · resultado dentro de tolerancia.
+      </div>
+
+      <div class="grid kpis" style="margin-bottom:16px">
+        <div class="card kpi">
+          <div class="etq">Inspecciones hoy</div>
+          <div class="valor">348</div>
+          <div class="delta pos">▲ 6,4 % vs. ayer</div>
+        </div>
+        <div class="card kpi">
+          <div class="etq">Aprobadas</div>
+          <div class="valor" style="color:var(--verde-700)">301</div>
+          <div class="delta pos">86,5 % del total</div>
+        </div>
+        <div class="card kpi">
+          <div class="etq">Rechazadas</div>
+          <div class="valor" style="color:var(--rojo)">39</div>
+          <div class="delta neg">11,2 % del total</div>
+        </div>
+        <div class="card kpi">
+          <div class="etq">Sin receta</div>
+          <div class="valor" style="color:#8d6e00">8</div>
+          <div class="delta">2,3 % del total</div>
+        </div>
+      </div>
+
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Última inspección</h3>
+          <div class="sub">Trigger 000412 · 05-10-2026 14:32:08 · operador ldaza</div>
+          <div class="medidor">
+            <svg class="gauge" viewBox="0 0 120 120" role="img" aria-label="Ángulo medido: 58,4 grados">
+              <circle cx="60" cy="60" r="50" fill="none" stroke="#e3e8ea" stroke-width="10"/>
+              <path d="M60 60 L60 12 A48 48 0 0 1 101.6 84 Z" fill="rgba(76,175,80,.22)" stroke="#4caf50" stroke-width="1.5"/>
+              <line x1="60" y1="60" x2="60" y2="14" stroke="#78909c" stroke-width="2"/>
+              <line x1="60" y1="60" x2="92" y2="43" stroke="#2e7d32" stroke-width="3"/>
+              <circle cx="60" cy="60" r="4" fill="#1b5e20"/>
+              <text x="60" y="82" font-size="15" text-anchor="middle" fill="#1c2427">58,4°</text>
+            </svg>
+            <div>
+              <div class="dato">Estado<b><span class="estado aprobado">Aprobada</span></b></div>
+              <div class="dato" style="margin-top:10px">Tolerancia de la receta A-36
+                <b class="mono">45,0° – 90,0°</b></div>
+              <div class="dato" style="margin-top:10px">Imágenes de la ráfaga<b>100 frames · 24,8 MB</b></div>
+            </div>
+          </div>
+          <div class="escala" role="img" aria-label="58,4 grados dentro del rango 45 a 90">
+            <div class="fin"></div><div class="mi" style="inset:0 50% 0 0"></div>
+            <div class="pin" style="left:64%"></div>
+          </div>
+          <div class="escala-leyenda">
+            <span>0°</span><span class="mono">mín 45°</span><span class="mono">máx 90°</span><span>180°</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Tendencia del ángulo</h3>
+          <div class="sub">Últimos 20 triggers · receta A-36</div>
+          <svg class="spark" viewBox="0 0 320 120" preserveAspectRatio="none" role="img"
+               aria-label="Gráfico de tendencia del ángulo en las últimas 20 inspecciones">
+            <line x1="0" y1="26" x2="320" y2="26" stroke="#c8e6c9" stroke-width="1" stroke-dasharray="4 3"/>
+            <line x1="0" y1="94" x2="320" y2="94" stroke="#ffcdd2" stroke-width="1" stroke-dasharray="4 3"/>
+            <text x="2" y="22" font-size="8" fill="#78909c">máx 90°</text>
+            <text x="2" y="106" font-size="8" fill="#78909c">mín 45°</text>
+            <polyline fill="none" stroke="#2e7d32" stroke-width="2.4" stroke-linejoin="round"
+              points="0,52 17,48 34,60 51,55 68,66 85,58 102,62 119,49 136,54 153,70 170,63 187,57 204,52 221,61 238,55 255,47 272,58 289,53 306,49 320,55"/>
+            <circle cx="320" cy="55" r="3.6" fill="#1b5e20"/>
+          </svg>
+          <div class="leyenda-graf">
+            <span><i style="background:#2e7d32"></i>ángulo medido</span>
+            <span><i style="background:#c8e6c9"></i>límite superior</span>
+            <span><i style="background:#ffcdd2"></i>límite inferior</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>Últimos registros</h3>
+        <div class="sub">Se actualiza cada 10 segundos · solo lectura para el operador</div>
+        <table>
+          <thead><tr>
+            <th>Trigger</th><th>Fecha y hora</th><th>Receta</th><th>Lote</th>
+            <th class="num">Ángulo</th><th>Estado</th>
+          </tr></thead>
+          <tbody>
+            <tr><td data-th="Trigger" class="mono">000412</td><td data-th="Fecha">05-10 14:32:08</td>
+                <td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0412</td>
+                <td data-th="Ángulo" class="num">58,4°</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+            <tr><td data-th="Trigger" class="mono">000411</td><td data-th="Fecha">05-10 14:29:51</td>
+                <td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0412</td>
+                <td data-th="Ángulo" class="num">41,8°</td><td data-th="Estado"><span class="estado rechazado">Rechazada</span></td></tr>
+            <tr><td data-th="Trigger" class="mono">000410</td><td data-th="Fecha">05-10 14:27:33</td>
+                <td data-th="Receta">Barra 12</td><td data-th="Lote" class="mono">L-2026-0411</td>
+                <td data-th="Ángulo" class="num">—</td><td data-th="Estado"><span class="estado sin-receta">Sin receta</span></td></tr>
+            <tr><td data-th="Trigger" class="mono">000409</td><td data-th="Fecha">05-10 14:25:10</td>
+                <td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0411</td>
+                <td data-th="Ángulo" class="num">62,1°</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------------- HISTÓRICO ---------------- -->
+    <section class="vista" id="v-historico">
+      <div class="card" style="margin-bottom:16px">
+        <h3>Consulta histórica</h3>
+        <div class="sub">Filtros combinables · trazabilidad por lote, receta, estado y período</div>
+        <div class="filtros" id="filtros">
+          <div><label for="f-desde">Desde</label><input id="f-desde" type="date" value="2026-10-01"></div>
+          <div><label for="f-hasta">Hasta</label><input id="f-hasta" type="date" value="2026-10-05"></div>
+          <div><label for="f-receta">Receta</label>
+            <select id="f-receta"><option value="">Todas</option><option>A-36</option><option>Barra 12</option><option>Roll 50</option></select>
+          </div>
+          <div><label for="f-estado">Estado</label>
+            <select id="f-estado"><option value="">Todos</option><option>aprobado</option><option>rechazado</option><option>sin-receta</option></select>
+          </div>
+          <div><label for="f-buscar">Buscar lote</label><input id="f-buscar" type="search" placeholder="L-2026-…"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn" onclick="filtrar()">Aplicar filtros</button>
+          <button class="btn sec" onclick="limpiarFiltros()">Limpiar</button>
+          <button class="btn sec" onclick="alert('En el sistema real descarga un CSV con los filtros aplicados.')">Exportar CSV</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <div><h3>Resultados</h3><div class="sub" id="contador">Mostrando 8 de 348 registros</div></div>
+          <span class="chip info">Escala 1:1 con datos reales</span>
+        </div>
+        <table id="tabla-hist">
+          <thead><tr>
+            <th>Trigger</th><th>Fecha y hora</th><th>Receta</th><th>Lote</th><th>Operador</th>
+            <th class="num">Ángulo</th><th class="num">Tolerancia</th><th>Estado</th>
+          </tr></thead>
+          <tbody>
+            <tr data-estado="aprobado"><td data-th="Trigger" class="mono">000412</td><td data-th="Fecha">05-10 14:32:08</td><td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0412</td><td data-th="Operador">ldaza</td><td data-th="Ángulo" class="num">58,4°</td><td data-th="Tolerancia" class="num">45–90</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+            <tr data-estado="rechazado"><td data-th="Trigger" class="mono">000411</td><td data-th="Fecha">05-10 14:29:51</td><td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0412</td><td data-th="Operador">ldaza</td><td data-th="Ángulo" class="num">41,8°</td><td data-th="Tolerancia" class="num">45–90</td><td data-th="Estado"><span class="estado rechazado">Rechazada</span></td></tr>
+            <tr data-estado="sin-receta"><td data-th="Trigger" class="mono">000410</td><td data-th="Fecha">05-10 14:27:33</td><td data-th="Receta">Barra 12</td><td data-th="Lote" class="mono">L-2026-0411</td><td data-th="Operador">jsarabia</td><td data-th="Ángulo" class="num">—</td><td data-th="Tolerancia" class="num">—</td><td data-th="Estado"><span class="estado sin-receta">Sin receta</span></td></tr>
+            <tr data-estado="aprobado"><td data-th="Trigger" class="mono">000409</td><td data-th="Fecha">05-10 14:25:10</td><td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0411</td><td data-th="Operador">ldaza</td><td data-th="Ángulo" class="num">62,1°</td><td data-th="Tolerancia" class="num">45–90</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+            <tr data-estado="aprobado"><td data-th="Trigger" class="mono">000408</td><td data-th="Fecha">05-10 14:22:47</td><td data-th="Receta">Roll 50</td><td data-th="Lote" class="mono">L-2026-0410</td><td data-th="Operador">dparedes</td><td data-th="Ángulo" class="num">71,3°</td><td data-th="Tolerancia" class="num">60–110</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+            <tr data-estado="rechazado"><td data-th="Trigger" class="mono">000407</td><td data-th="Fecha">05-10 14:20:12</td><td data-th="Receta">Barra 12</td><td data-th="Lote" class="mono">L-2026-0410</td><td data-th="Operador">dparedes</td><td data-th="Ángulo" class="num">12,6°</td><td data-th="Tolerancia" class="num">45–90</td><td data-th="Estado"><span class="estado rechazado">Rechazada</span></td></tr>
+            <tr data-estado="aprobado"><td data-th="Trigger" class="mono">000406</td><td data-th="Fecha">05-10 14:17:39</td><td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0409</td><td data-th="Operador">ldaza</td><td data-th="Ángulo" class="num">55,0°</td><td data-th="Tolerancia" class="num">45–90</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+            <tr data-estado="aprobado"><td data-th="Trigger" class="mono">000405</td><td data-th="Fecha">05-10 14:15:02</td><td data-th="Receta">A-36</td><td data-th="Lote" class="mono">L-2026-0409</td><td data-th="Operador">ldaza</td><td data-th="Ángulo" class="num">59,7°</td><td data-th="Tolerancia" class="num">45–90</td><td data-th="Estado"><span class="estado aprobado">Aprobada</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------------- DETALLE ---------------- -->
+    <section class="vista" id="v-detalle">
+      <div class="banner azul">
+        <strong>Trazabilidad completa:</strong> cada registro conserva el ángulo medido, los límites
+        de la receta aplicada en ese momento y el operador que lo generó.
+      </div>
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Inspección 000412 <span class="pill">trigger</span></h3>
+          <div class="sub">05-10-2026 14:32:08 · lote L-2026-0412 · batch 3 · operador ldaza</div>
+          <dl class="lista-def" style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px;margin:0">
+            <div><dt>Ángulo medido</dt><dd class="mono">58,4°</dd></div>
+            <div><dt>Estado</dt><dd><span class="estado aprobado">Aprobada</span></dd></div>
+            <div><dt>Receta aplicada</dt><dd>A-36 (45,0° – 90,0°)</dd></div>
+            <div><dt>Origen del dato</dt><dd>Cámara de planta (API)</dd></div>
+            <div><dt>Imágenes</dt><dd>100 frames · 24,8 MB</dd></div>
+            <div><dt>Checksum</dt><dd class="mono" style="font-size:.78rem">a3f2…9c41</dd></div>
+          </dl>
+          <div class="banner ambar" style="margin-top:16px">
+            Este registro es <strong>inmutable</strong>: si la receta A-36 cambiara hoy, el histórico
+            conserva los límites con los que se evaluó.
+          </div>
+        </div>
+        <div class="card">
+          <h3>Imagen del diagnóstico</h3>
+          <div class="sub">resultado_analisis.png · vista del operador</div>
+          <div style="aspect-ratio:4/3;border-radius:var(--radio-sm);background:#0f1512;
+                      display:grid;place-items:center;border:1px solid var(--gris-200)">
+            <svg viewBox="0 0 200 150" width="100%" height="100%" role="img"
+                 aria-label="Diagnóstico con el sector angular marcado en verde">
+              <rect width="200" height="150" fill="#0f1512"/>
+              <circle cx="100" cy="75" r="52" fill="#1a1a1a" stroke="#ffd54f" stroke-width="2"/>
+              <path d="M100 75 L100 23 A52 52 0 0 1 145 101 Z" fill="rgba(76,175,80,.35)" stroke="#4caf50" stroke-width="2"/>
+              <line x1="100" y1="75" x2="100" y2="23" stroke="#fff" stroke-width="2"/>
+              <line x1="100" y1="75" x2="141" y2="52" stroke="#4caf50" stroke-width="3"/>
+              <text x="100" y="142" font-size="10" fill="#a5d6a7" text-anchor="middle">58,4° · ÓPTIMO</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h3>Bitácora del registro</h3>
+        <div class="sub">Eventos de auditoría asociados (solo lectura)</div>
+        <div class="pasos">
+          <div class="paso"><span class="n">1</span><div><strong>14:32:08</strong> · recepción vía <span class="mono">POST /api/v1/inspecciones</span> (token de servicio)</div></div>
+          <div class="paso"><span class="n">2</span><div><strong>14:32:08</strong> · validación de campos y receta A-36 vigente</div></div>
+          <div class="paso"><span class="n">3</span><div><strong>14:32:08</strong> · evaluación 45,0° ≤ 58,4° ≤ 90,0° → <span class="estado aprobado">Aprobada</span></div></div>
+          <div class="paso"><span class="n">4</span><div><strong>14:32:09</strong> · imágenes asociadas y checksum calculado</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- RECETAS ---------------- -->
+    <section class="vista" id="v-recetas">
+      <div class="banner morado">
+        <strong>Solo administrador.</strong> Cambiar una tolerancia no modifica los registros ya
+        evaluados: la receta se versiona y el histórico conserva los límites vigentes al momento.
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div><h3>Recetas configuradas</h3><div class="sub">Tolerancias por producto</div></div>
+          <button class="btn" onclick="alert('En el sistema real abre el formulario de nueva receta.')">+ Nueva receta</button>
+        </div>
+        <table>
+          <thead><tr><th>Receta</th><th class="num">Mínimo</th><th class="num">Máximo</th>
+            <th class="num">Registros</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody>
+            <tr><td data-th="Receta"><strong>A-36</strong></td><td data-th="Mínimo" class="num">45,0°</td>
+                <td data-th="Máximo" class="num">90,0°</td><td data-th="Registros" class="num">1 284</td>
+                <td data-th="Estado"><span class="estado aprobado">Activa</span></td>
+                <td data-th="Acciones"><button class="btn sec" style="min-height:32px;padding:6px 12px" onclick="alert('Editar receta A-36 (solo admin).')">Editar</button></td></tr>
+            <tr><td data-th="Receta"><strong>Barra 12</strong></td><td data-th="Mínimo" class="num">11,7°</td>
+                <td data-th="Máximo" class="num">12,3°</td><td data-th="Registros" class="num">512</td>
+                <td data-th="Estado"><span class="estado aprobado">Activa</span></td>
+                <td data-th="Acciones"><button class="btn sec" style="min-height:32px;padding:6px 12px" onclick="alert('Editar receta Barra 12.')">Editar</button></td></tr>
+            <tr><td data-th="Receta"><strong>Roll 50</strong></td><td data-th="Mínimo" class="num">60,0°</td>
+                <td data-th="Máximo" class="num">110,0°</td><td data-th="Registros" class="num">96</td>
+                <td data-th="Estado"><span class="estado rechazado">Inactiva</span></td>
+                <td data-th="Acciones"><button class="btn sec" style="min-height:32px;padding:6px 12px" onclick="alert('Editar receta Roll 50.')">Editar</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------------- USUARIOS ---------------- -->
+    <section class="vista" id="v-usuarios">
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Usuarios</h3>
+          <div class="sub">Alta, baja y cambio de rol · solo administrador</div>
+          <table>
+            <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th></tr></thead>
+            <tbody>
+              <tr><td data-th="Usuario" class="mono">ldaza</td><td data-th="Nombre">Leonardo Daza</td><td data-th="Rol">Operador</td><td data-th="Estado"><span class="estado aprobado">Activo</span></td></tr>
+              <tr><td data-th="Usuario" class="mono">jsarabia</td><td data-th="Nombre">José Sarabia</td><td data-th="Rol">Supervisor</td><td data-th="Estado"><span class="estado aprobado">Activo</span></td></tr>
+              <tr><td data-th="Usuario" class="mono">dparedes</td><td data-th="Nombre">Daniel Paredes</td><td data-th="Rol">Administrador</td><td data-th="Estado"><span class="estado aprobado">Activo</span></td></tr>
+              <tr><td data-th="Usuario" class="mono">servicio</td><td data-th="Nombre">Cuenta de servicio</td><td data-th="Rol">Integrador</td><td data-th="Estado"><span class="estado sin-receta">Sin sesión web</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>Matriz de permisos (RBAC)</h3>
+          <div class="sub">Qué puede hacer cada rol en la interfaz</div>
+          <table>
+            <thead><tr><th>Acción</th><th>Oper.</th><th>Superv.</th><th>Admin</th></tr></thead>
+            <tbody>
+              <tr><td data-th="Acción">Ver última inspección</td><td>✔</td><td>✔</td><td>✔</td></tr>
+              <tr><td data-th="Acción">Consultar histórico</td><td>Solo hoy</td><td>✔</td><td>✔</td></tr>
+              <tr><td data-th="Acción">Exportar resultados</td><td>—</td><td>✔</td><td>✔</td></tr>
+              <tr><td data-th="Acción">Editar recetas</td><td>—</td><td>—</td><td>✔</td></tr>
+              <tr><td data-th="Acción">Gestionar usuarios</td><td>—</td><td>—</td><td>✔</td></tr>
+              <tr><td data-th="Acción">Ver auditoría</td><td>—</td><td>✔</td><td>✔</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- FEEDBACK ---------------- -->
+    <section class="vista" id="v-feedback">
+      <div class="banner verde">
+        <strong>Retroalimentación integrada (2.1.3.7).</strong> Se realizaron dos rondas de validación:
+        una con el operador de planta y otra con el supervisor. Cada observación se tradujo en un
+        cambio concreto en el prototipo.
+      </div>
+      <div class="grid dos-col">
+        <div class="card">
+          <h3>Cambios aplicados en la versión 2</h3>
+          <div class="sub">De la observación al cambio</div>
+          <div class="cambios">
+            <div class="cambio"><span class="v">v2</span><div>
+              <strong>Ángulo con una sola cifra grande.</strong> El operador indicó que el número debía
+              leerse a un metro de distancia; se aumentó la jerarquía tipográfica y se agregó el estado
+              con color. <span class="pill v2">aplicado</span></div></div>
+            <div class="cambio"><span class="v">v2</span><div>
+              <strong>Filtro por lote visible sin abrir un panel.</strong> El supervisor pedía filtrar por
+              lote en la misma pantalla; los filtros pasaron a estar siempre visibles sobre la tabla.
+              <span class="pill v2">aplicado</span></div></div>
+            <div class="cambio"><span class="v">v2</span><div>
+              <strong>Tolerancia junto al ángulo.</strong> Se añadió la barra de rango con el mínimo y el
+              máximo de la receta para interpretar el resultado sin memorizar valores.
+              <span class="pill v2">aplicado</span></div></div>
+            <div class="cambio"><span class="v">v2</span><div>
+              <strong>Tablas convertidas en tarjetas en móvil.</strong> En la versión 1 la tabla se
+              cortaba en pantallas pequeñas; ahora cada fila se apila como tarjeta.
+              <span class="pill v2">aplicado</span></div></div>
+            <div class="cambio"><span class="v">v2</span><div>
+              <strong>Confirmación al editar una receta.</strong> El administrador pidió un aviso explícito
+              de que el cambio no altera registros históricos; se agregó el aviso en la pantalla de recetas.
+              <span class="pill v2">aplicado</span></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Registro de validación</h3>
+          <div class="sub">Participantes y foco de la ronda</div>
+          <table>
+            <thead><tr><th>Ronda</th><th>Participante</th><th>Observaciones</th><th>Estado</th></tr></thead>
+            <tbody>
+              <tr><td data-th="Ronda">R1</td><td data-th="Participante">Operador de planta</td><td data-th="Obs.">4</td><td data-th="Estado"><span class="estado aprobado">Aplicadas</span></td></tr>
+              <tr><td data-th="Ronda">R1</td><td data-th="Participante">Supervisor de calidad</td><td data-th="Obs.">3</td><td data-th="Estado"><span class="estado aprobado">Aplicadas</span></td></tr>
+              <tr><td data-th="Ronda">R2</td><td data-th="Participante">Administrador</td><td data-th="Obs.">2</td><td data-th="Estado"><span class="estado aprobado">Aplicadas</span></td></tr>
+              <tr><td data-th="Ronda">R2</td><td data-th="Participante">Docente contraparte</td><td data-th="Obs.">2</td><td data-th="Estado"><span class="estado sin-receta">En revisión</span></td></tr>
+            </tbody>
+          </table>
+          <div class="banner ambar" style="margin-top:14px">
+            Las observaciones pendientes se incorporan en el Sprint 4 (construcción), sin afectar
+            la arquitectura definida en este informe.
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  const VISTAS = ["dashboard","historico","detalle","recetas","usuarios","feedback"];
+  const TITULOS = {dashboard:"Dashboard", historico:"Histórico de inspecciones",
+                   detalle:"Detalle de la inspección", recetas:"Recetas y tolerancias",
+                   usuarios:"Usuarios y roles", feedback:"Retroalimentación aplicada"};
+
+  function irA(vista){
+    if(!VISTAS.includes(vista)) vista = "dashboard";
+    document.getElementById("app").style.display = "flex";
+    document.getElementById("vista-login").style.display = "none";
+    VISTAS.forEach(v => {
+      document.getElementById("v-" + v).classList.toggle("activa", v === vista);
+    });
+    document.querySelectorAll("nav button").forEach(b => {
+      const activo = b.dataset.vista === vista;
+      if(activo) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current");
+    });
+    document.getElementById("titulo-vista").textContent = TITULOS[vista];
+    window.scrollTo({top:0,behavior:"instant"});
+  }
+
+  function entrar(e){
+    e.preventDefault();
+    irA(new URLSearchParams(location.search).get("vista") || "dashboard");
+  }
+
+  function filtrar(){
+    const estado = document.getElementById("f-estado").value;
+    const buscar = (document.getElementById("f-buscar").value || "").toLowerCase();
+    const receta = document.getElementById("f-receta").value;
+    let visibles = 0;
+    document.querySelectorAll("#tabla-hist tbody tr").forEach(tr => {
+      const coincideEstado = !estado || tr.dataset.estado === estado;
+      const coincideLote = !buscar || tr.textContent.toLowerCase().includes(buscar);
+      const coincideReceta = !receta || tr.textContent.includes(receta);
+      const mostrar = coincideEstado && coincideLote && coincideReceta;
+      tr.style.display = mostrar ? "" : "none";
+      if(mostrar) visibles++;
+    });
+    document.getElementById("contador").textContent =
+      "Mostrando " + visibles + " de 348 registros (datos simulados)";
+  }
+
+  function limpiarFiltros(){
+    document.getElementById("f-estado").value = "";
+    document.getElementById("f-receta").value = "";
+    document.getElementById("f-buscar").value = "";
+    document.getElementById("contador").textContent = "Mostrando 8 de 348 registros";
+    document.querySelectorAll("#tabla-hist tbody tr").forEach(tr => tr.style.display = "");
+  }
+
+  document.querySelectorAll("nav button").forEach(b => {
+    b.addEventListener("click", () => irA(b.dataset.vista));
+  });
+
+  function reloj(){
+    const d = new Date();
+    document.getElementById("reloj").textContent =
+      d.toLocaleDateString("es-CL") + " " + d.toLocaleTimeString("es-CL", {hour:"2-digit",minute:"2-digit"});
+  }
+  reloj(); setInterval(reloj, 30000);
+
+  // Arranque: permite abrir una vista concreta con ?vista=...&auto=1
+  const params = new URLSearchParams(location.search);
+  if(params.get("auto") === "1"){
+    irA(params.get("vista") || "dashboard");
+  }
+  if(params.get("v2") === "1"){
+    document.querySelectorAll(".pill").forEach(p => p.textContent = "v2 aplicado");
+  }
+</script>
+</body>
+</html>
