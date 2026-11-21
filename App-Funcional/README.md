@@ -245,9 +245,9 @@ las claves `*.pem` y los archivos `.env`.
 
 Evidencia del historial: `evidencias/27_git_commits.png`.
 
-> Para publicarlo en GitHub (y que el profesor vea los commits en línea):
-> crear un repositorio vacío y ejecutar
-> `git remote add origin https://github.com/USUARIO/aza-prototipo.git && git push -u origin main`.
+> Repositorio en línea: **<https://github.com/leodza/aza-prototipo>**
+> (acceso por *deploy key* `notebook-leo` con permiso de escritura, solo para este repositorio).
+> Para publicar cambios: `git push origin main`.
 
 ---
 
