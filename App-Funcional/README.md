@@ -248,3 +248,83 @@ Evidencia del historial: `evidencias/27_git_commits.png`.
 > Para publicarlo en GitHub (y que el profesor vea los commits en línea):
 > crear un repositorio vacío y ejecutar
 > `git remote add origin https://github.com/USUARIO/aza-prototipo.git && git push -u origin main`.
+
+---
+
+## 11. Ver la base de datos en vivo
+
+| Acceso | URL / comando | Usuario | Clave |
+|---|---|---|---|
+| **Explorador web** (pgweb) | <http://13.223.49.56:8081> | `aza` | `AzaLab2026Db` |
+| App | <http://13.223.49.56:8000> | `jsarabia` | PIN `1234` |
+| PostgreSQL por terminal | ver túnel abajo | `aza` | `AzaLab2026Pg` |
+
+En pgweb: la barra izquierda lista las 10 tablas (al hacer clic se ven las filas) y la
+pestaña **Query** permite escribir SQL y ejecutarlo con **Run Query**.
+
+### Consultas de prueba
+
+**1. Cuántos registros hay en cada tabla**
+
+```sql
+SELECT 'usuarios' AS tabla, count(*) FROM usuarios
+UNION ALL SELECT 'materiales', count(*) FROM materiales
+UNION ALL SELECT 'recetas', count(*) FROM recetas
+UNION ALL SELECT 'lotes', count(*) FROM lotes
+UNION ALL SELECT 'batches', count(*) FROM batches
+UNION ALL SELECT 'inspecciones', count(*) FROM inspecciones
+UNION ALL SELECT 'auditoria', count(*) FROM auditoria;
+```
+
+**2. Últimas inspecciones con su receta, lote y objeto en S3**
+
+```sql
+SELECT i.id, i.fecha_hora, r.nombre AS receta, l.codigo AS lote, b.numero AS batch,
+       i.material, i.angulo, i.estado, i.imagen_clave
+FROM inspecciones i
+LEFT JOIN recetas r ON r.id = i.receta_id
+LEFT JOIN lotes   l ON l.id = i.lote_id
+LEFT JOIN batches b ON b.id = i.batch_id
+ORDER BY i.id DESC LIMIT 10;
+```
+
+**3. Porcentaje de aprobación por receta**
+
+```sql
+SELECT r.nombre, count(*) AS total,
+       count(*) FILTER (WHERE i.estado = 'aprobado') AS aprobadas,
+       round(100.0 * count(*) FILTER (WHERE i.estado = 'aprobado') / count(*), 1) AS pct
+FROM inspecciones i JOIN recetas r ON r.id = i.receta_id
+GROUP BY r.nombre ORDER BY total DESC;
+```
+
+**4. Insertar una inspección a mano (y verla aparecer en la app)**
+
+```sql
+INSERT INTO inspecciones (fecha_hora, receta_id, lote_id, batch_id, angulo,
+                          limite_min, limite_max, estado, origen, material)
+VALUES (now(), 1, 1, 1, 72.5, 45, 90, 'aprobado', 'prueba_manual', 'Acero SAE 1010')
+RETURNING id, angulo, estado;
+```
+
+**5. Borrar la prueba**
+
+```sql
+DELETE FROM inspecciones WHERE origen = 'prueba_manual';
+```
+
+> ⚠️ Es la base real: un `DELETE` o `DROP` se ejecuta de inmediato. Para experimentar
+> sin riesgo, usar `BEGIN; … ROLLBACK;`.
+
+### Por terminal (psql)
+
+```powershell
+# 1) abrir el túnel (dejar esta ventana abierta)
+ssh -i "deploy\aza-llave.pem" -N -L 5432:127.0.0.1:5432 ubuntu@13.223.49.56
+
+# 2) en otra terminal
+$env:PGPASSWORD = "AzaLab2026Pg"
+psql -h 127.0.0.1 -U aza -d aza
+```
+
+Dentro de psql: `\dt` (tablas), `\d inspecciones` (estructura), `\x` (vista vertical).

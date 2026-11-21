@@ -37,6 +37,8 @@ services:
     restart: unless-stopped
     environment:
       PGWEB_DATABASE_URL: postgres://${POSTGRES_USER:-aza}:${POSTGRES_PASSWORD:-azaclave2026}@db:5432/${POSTGRES_DB:-aza}?sslmode=disable
+      PGWEB_AUTH_USER: ${PGWEB_AUTH_USER:-aza}
+      PGWEB_AUTH_PASS: ${PGWEB_AUTH_PASS:-azaclave2026}
     depends_on:
       db:
         condition: service_healthy
