@@ -180,6 +180,10 @@ def crear():
     print("\n  (la instalación de Docker tarda 2-3 minutos después del arranque)")
     with open(os.path.join(BASE, "deploy", "instancia.json"), "w", encoding="utf-8") as fh:
         json.dump({"instance_id": iid, "ip": ip_pub, "key": LLAVE, "sg": sg}, fh, indent=2)
+    # ip.txt lo lee NUBE.bat para abrir la aplicación sin buscar la dirección
+    with open(os.path.join(BASE, "deploy", "ip.txt"), "w", encoding="ascii") as fh:
+        fh.write(ip_pub or "")
+    print(f"  IP guardada en deploy/ip.txt (la usa NUBE.bat)")
 
 
 def estado():

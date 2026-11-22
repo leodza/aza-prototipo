@@ -253,6 +253,20 @@ Evidencia del historial: `evidencias/27_git_commits.png`.
 
 ## 11. Ver la base de datos en vivo
 
+### Acceso rápido (sin buscar la IP)
+
+Doble clic en **`NUBE.bat`**: comprueba que el servidor esté encendido y abre la aplicación
+y el visor de la base en el navegador. La dirección se lee de `deploy/ip.txt`.
+
+| Archivo | Para qué |
+|---|---|
+| `NUBE.bat` | Abre todo; si el servidor no responde, explica qué hacer |
+| `deploy\guardar-ip.bat 1.2.3.4` | Guarda una IP nueva cuando el laboratorio la cambie |
+| `deploy\ip.txt` | La IP actual (se actualiza sola al desplegar) |
+
+> Si el laboratorio se reinicia, la instancia se apaga y puede recibir otra IP.
+> El "Public IPv4" está en la consola de AWS: **EC2 → Instancias**.
+
 | Acceso | URL / comando | Usuario | Clave |
 |---|---|---|---|
 | **Explorador web** (pgweb) | <http://13.223.49.56:8081> | `aza` | `AzaLab2026Db` |
