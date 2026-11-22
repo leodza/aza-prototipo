@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import random
+import shutil
 import threading
 import time
 import traceback
@@ -42,6 +43,9 @@ def _precalentar():
         simulador.medir_angulo(carpeta)
     except Exception:
         traceback.print_exc()
+    finally:
+        # No se deja nada en disco: los datos viven en la nube.
+        shutil.rmtree(carpeta, ignore_errors=True)
 
 
 @asynccontextmanager
@@ -236,9 +240,26 @@ class RefreshIn(BaseModel):
     refresh: str
 
 
-def _auditar(s, usuario_id, accion, entidad, entidad_id=None, ip=None, detalle=None):
+def _auditar(s, usuario_id, accion, entidad, entidad_id=None, ip=None,
+             detalle=None, antes=None, despues=None):
+    """Registra un evento en la bitácora.
+
+    `detalle` admite texto o diccionario; `antes` y `despues` guardan el estado
+    anterior y nuevo del registro. Por eso la columna es JSONB en PostgreSQL:
+    el contenido es heterogéneo según la entidad auditada.
+    """
+    if isinstance(detalle, dict):
+        payload = dict(detalle)
+    elif detalle:
+        payload = {"mensaje": detalle}
+    else:
+        payload = {}
+    if antes is not None:
+        payload["antes"] = antes
+    if despues is not None:
+        payload["despues"] = despues
     s.add(db.Auditoria(usuario_id=usuario_id, accion=accion, entidad=entidad,
-                       entidad_id=entidad_id, ip=ip, detalle=detalle))
+                       entidad_id=entidad_id, ip=ip, detalle=payload or None))
 
 
 @app.post("/api/auth/login")
@@ -270,7 +291,8 @@ def login(datos: LoginIn):
         sesion = db.Sesion(usuario_id=u.id, refresh_hash=hashed, expira_en=expira)
         s.add(sesion)
         s.flush()
-        _auditar(s, u.id, "login", "usuarios", u.id)
+        _auditar(s, u.id, "login", "usuarios", u.id,
+                   detalle={"usuario": u.username, "rol": u.rol.nombre})
         s.commit()
 
         token = crear_jwt({"sub": u.username, "rol": u.rol.nombre, "sid": sesion.id,
@@ -512,7 +534,10 @@ def crear_receta(datos: RecetaIn, usuario: dict = Depends(requiere("administrado
         r = db.Receta(**{k: v for k, v in campos.items() if v is not None or k == "materialidad"})
         s.add(r)
         s.flush()
-        _auditar(s, usuario["uid"], "crear", "recetas", r.id, detalle=f"Receta {r.nombre}")
+        _auditar(s, usuario["uid"], "crear", "recetas", r.id,
+                   despues={"nombre": r.nombre, "min_tol": float(r.min_tol),
+                            "max_tol": float(r.max_tol),
+                            "material": r.materialidad})
         s.commit()
         return {"id": r.id, "nombre": r.nombre, "material": r.materialidad}
 
@@ -548,7 +573,8 @@ def crear_material(datos: MaterialIn, usuario: dict = Depends(requiere("administ
         m = db.Material(familia=familia, tipo=tipo, descripcion=datos.descripcion)
         s.add(m)
         s.flush()
-        _auditar(s, usuario["uid"], "crear", "materiales", m.id, detalle=f"Material {m.nombre}")
+        _auditar(s, usuario["uid"], "crear", "materiales", m.id,
+                   despues={"familia": m.familia, "tipo": m.tipo})
         s.commit()
         return {"id": m.id, "nombre": m.nombre}
 
@@ -604,7 +630,8 @@ def crear_usuario(datos: UsuarioIn, usuario: dict = Depends(requiere("administra
         s.add(u)
         s.flush()
         _auditar(s, usuario["uid"], "crear", "usuarios", u.id,
-                 detalle=f"Alta de {u.username} con rol {rol.nombre}")
+                   despues={"usuario": u.username, "rol": u.rol.nombre,
+                            "activo": u.activo})
         s.commit()
         return {"id": u.id, "username": u.username, "rol": rol.nombre}
 
@@ -626,7 +653,9 @@ def activar_usuario(id: int, activo: bool,
                     db.Sesion.usuario_id == id, db.Sesion.revocado.is_(False))):
                 sesion.revocado = True
         _auditar(s, usuario["uid"], "actualizar", "usuarios", u.id,
-                 detalle=("Activación" if activo else "Desactivación") + f" de {u.username}")
+                   antes={"activo": not activo},
+                   despues={"activo": activo},
+                   detalle={"usuario": u.username})
         s.commit()
         return {"id": u.id, "activo": u.activo}
 
@@ -647,7 +676,8 @@ def borrar_usuario(id: int, usuario: dict = Depends(requiere("administrador"))):
                 db.Sesion.usuario_id == id, db.Sesion.revocado.is_(False))):
             sesion.revocado = True
         _auditar(s, usuario["uid"], "desactivar", "usuarios", u.id,
-                 detalle=f"Baja lógica de {u.username}; el historial se conserva")
+                   antes={"activo": True}, despues={"activo": False},
+                   detalle={"usuario": u.username})
         s.commit()
         return {"id": u.id, "activo": False,
                 "mensaje": "Cuenta desactivada; sus registros históricos se conservan"}
@@ -760,12 +790,18 @@ def simular(receta_id: int | None = None,
     clave_diagnostico = None
     if almacenamiento.activo():
         try:
-            prefijo = f"capturas/{ahora:%Y-%m-%d}/{os.path.basename(carpeta)}"
+            # La ruta en el bucket se ordena por lote y batch para que la
+            # trazabilidad sea visible también en el almacenamiento.
+            carpeta_lote = (f"lotes/{lote.codigo}/B{batch.numero}"
+                            if lote and batch else f"capturas/{ahora:%Y-%m-%d}")
+            prefijo = f"{carpeta_lote}/{os.path.basename(carpeta)}"
             archivos = [(os.path.join(carpeta, n), f"{prefijo}/{n}")
                         for n in sorted(os.listdir(carpeta))
                         if os.path.isfile(os.path.join(carpeta, n))]
             almacenamiento.subir_carpeta(archivos)
             clave_diagnostico = f"{prefijo}/resultado_analisis.png"
+            # Todo queda en la nube: se elimina la copia local de trabajo.
+            shutil.rmtree(carpeta, ignore_errors=True)
         except Exception:
             traceback.print_exc()   # el registro no se pierde si falla la subida
 
@@ -794,8 +830,13 @@ def simular(receta_id: int | None = None,
                             mensaje=f"Ángulo {angulo}° fuera del rango {minimo}–{maximo}° "
                                     f"de la receta {rec.nombre}"))
         _auditar(s, usuario_id, "crear", "inspecciones", insp.id,
-                 detalle=f"Ráfaga simulada · {info['frames']} frames · {velocidad} m/min · "
-                         f"{total_ms} ms · ángulo {angulo}° → {estado}")
+                 detalle={"frames": info["frames"], "duracion_ms": total_ms,
+                          "velocidad_m_min": velocidad, "modo": modo},
+                 despues={"angulo": angulo, "estado": estado,
+                          "receta": rec.nombre, "material": rec.materialidad,
+                          "lote": lote.codigo if lote else None,
+                          "batch": batch.numero if batch else None,
+                          "objeto": clave_diagnostico})
         s.commit()
         return {"inspeccion": _serializar(insp), "rafaga": info,
                 "proceso": {"velocidad_m_min": velocidad, "modo": modo,

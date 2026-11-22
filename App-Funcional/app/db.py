@@ -10,10 +10,15 @@ import os
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text,
+    JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text,
     UniqueConstraint, create_engine,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+
+# En PostgreSQL la bitácora usa JSONB (como declara el informe ES2); en SQLite,
+# que solo se usa para las pruebas, el mismo campo se guarda como JSON de texto.
+DETALLE_JSON = JSON().with_variant(JSONB(), "postgresql")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -182,7 +187,7 @@ class Auditoria(Base):
     entidad_id: Mapped[int | None] = mapped_column(Integer)
     fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
     ip: Mapped[str | None] = mapped_column(String(45))
-    detalle: Mapped[str | None] = mapped_column(Text)
+    detalle: Mapped[dict | None] = mapped_column(DETALLE_JSON)
 
 
 def crear_tablas() -> None:

@@ -371,7 +371,7 @@ tabla(["Tabla", "Qué guarda", "Filas actuales"],
        ["batches", "Subdivisiones del lote, numeradas de 1 a 3", "18"],
        ["inspecciones", "Cada medición: ángulo, límites aplicados, estado, material, velocidad y clave del objeto en S3", "50"],
        ["alarmas", "Avisos generados cuando una pieza sale fuera de tolerancia", "0"],
-       ["auditoria", "Bitácora de quién hizo qué y cuándo", "12"]],
+       ["auditoria", "Bitácora con detalle JSONB: quién, qué y los valores anteriores y nuevos", "16"]],
       anchos=[2.6, 10.3, 3.3], fuente=8.5)
 
 p("La tabla más importante es «inspecciones». Cada fila es una medición y contiene, además del "
@@ -381,12 +381,16 @@ p("La tabla más importante es «inspecciones». Cada fila es una medición y co
 doc.add_heading("3.2 Almacenamiento de objetos (las imágenes)", level=2)
 p("En el bucket «aza-capturas-166178700885» se guarda una carpeta por ráfaga, con esta estructura:",
   align="j")
-codigo("""capturas/
-  2026-11-21/
-    Trigger_0002_20261121_202652/
-      img_001.bmp ... img_016.bmp    16 imágenes de la ráfaga (640 x 480)
-      metricas.json                  mediciones del pipeline
-      resultado_analisis.png         imagen con el círculo y el ángulo detectados""")
+codigo("""lotes/
+  L-2026-0410/
+    B1/
+      Trigger_0006_20261121_214659/
+        img_001.bmp ... img_016.bmp    16 imágenes de la ráfaga (640 x 480)
+        metricas.json                  mediciones del pipeline
+        resultado_analisis.png         imagen con el círculo y el ángulo detectados
+    B2/ ...
+  L-2026-0411/
+    B1/ ...""")
 p("Cada ráfaga ocupa alrededor de 15 MB (921 KB por imagen BMP). En total, hoy hay 54 objetos "
   "guardados. El campo «imagen_clave» de la tabla inspecciones apunta exactamente a esa ruta.", align="j")
 
