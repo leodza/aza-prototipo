@@ -21,6 +21,8 @@ import psutil
 
 BASE = os.getenv("AZA_BASE", "http://127.0.0.1:8000")
 SALIDA = os.path.dirname(os.path.abspath(__file__))
+SUFIJO = os.getenv("AZA_SUFIJO", "")
+REMOTO = not any(h in BASE for h in ("127.0.0.1", "localhost"))
 LOG = []
 RES = {"base": BASE, "inicio": time.strftime("%Y-%m-%d %H:%M:%S"), "escenarios": {}}
 
@@ -232,6 +234,8 @@ def main():
                     break
             except Exception:
                 continue
+    if REMOTO:
+        proceso = None
     RES["proceso"] = proceso.pid if proceso else None
     log(f" Servidor   : PID {RES['proceso']}" if proceso else " Servidor   : PID no detectado")
 
@@ -263,9 +267,9 @@ def main():
             f"RAM media {RES['recursos']['ram_media_mb']} MB")
 
     RES["fin"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    with open(os.path.join(SALIDA, "resultados.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(SALIDA, f"resultados{SUFIJO}.json"), "w", encoding="utf-8") as fh:
         json.dump(RES, fh, indent=2, ensure_ascii=False)
-    with open(os.path.join(SALIDA, "consola.log"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(SALIDA, f"consola{SUFIJO}.log"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(LOG))
     log("")
     log("=" * 68)

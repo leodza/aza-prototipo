@@ -1,0 +1,34 @@
+====================================================================
+ PRUEBA DE RENDIMIENTO Y ESTRÉS · AZA Analyzer
+====================================================================
+ Servidor   : http://184.198.161.34:8000
+ Equipo     : Windows 10.0 · 12 núcleos · 31.9 GB RAM
+ Inicio     : 2026-11-22 20:02:53
+ Backend    : PostgreSQL · MinIO/S3 · bucket «aza-capturas-166178700885» en 
+ Registros  : 60
+ Servidor   : PID no detectado
+
+== ESCENARIO 1 · Latencia por endpoint (secuencial, 60 repeticiones) ==
+  Salud                      media   196.8 ms · p95   208.3 ms · p99   214.2 ms · errores 0
+  Dashboard                  media   143.0 ms · p95   143.5 ms · p99   144.1 ms · errores 0
+  Histórico (20 filas)       media   153.0 ms · p95   152.5 ms · p99   208.3 ms · errores 0
+  Detalle de inspección      media   142.1 ms · p95   142.7 ms · p99   143.0 ms · errores 0
+
+== ESCENARIO 2 · Lecturas concurrentes (12 s por nivel) ==
+   1 clientes      6.9 req/s · media   145.0 ms · p95   151.0 ms · p99   151.4 ms · errores 0
+   5 clientes     32.2 req/s · media   154.2 ms · p95   164.9 ms · p99   297.7 ms · errores 0
+  10 clientes     62.1 req/s · media   159.8 ms · p95   179.5 ms · p99   319.1 ms · errores 0
+  20 clientes     73.0 req/s · media   271.9 ms · p95   471.2 ms · p99   580.9 ms · errores 0
+
+== ESCENARIO 3 · Escrituras concurrentes (registro por API) ==
+   1 clientes   40 registros ·    6.5 reg/s · media   152.8 ms · p95   151.2 ms · errores 0
+   5 clientes   40 registros ·   30.3 reg/s · media   159.4 ms · p95   283.8 ms · errores 0
+  10 clientes   40 registros ·   51.0 reg/s · media   173.9 ms · p95   306.9 ms · errores 0
+
+== ESCENARIO 4 · Análisis de visión (ráfaga completa, 3 veces) ==
+  ráfaga 1:    3070 ms · ángulo 67.2
+  ráfaga 2:    2620 ms · ángulo 68.8
+  ráfaga 3:    2351 ms · ángulo 68.8
+
+== Recursos del servidor durante la prueba ==
+  CPU media 0% · pico 0% · RAM media 0 MB
