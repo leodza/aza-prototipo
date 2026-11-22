@@ -74,6 +74,6 @@ servidor compatible con MinIO definiendo `AZA_S3_ENDPOINT`).
 
 ## 📸 Evidencias
 
-En [`App-Funcional/evidencias/`](App-Funcional/evidencias/) hay 28 capturas reales:
+En [`App-Funcional/evidencias/`](App-Funcional/evidencias/) hay 24 capturas reales:
 interfaz en local, sistema desplegado en AWS, contenido de PostgreSQL, objetos en S3,
 consultas SQL y el historial de commits.
