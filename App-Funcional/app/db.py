@@ -10,8 +10,8 @@ import os
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, Text,
-    UniqueConstraint, create_engine,
+    JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String,
+    Text, UniqueConstraint, create_engine,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -133,17 +133,20 @@ class Inspeccion(Base):
     __table_args__ = (
         CheckConstraint("angulo IS NULL OR (angulo >= 0 AND angulo <= 360)",
                         name="chk_angulo"),
+        # Índice compuesto para el histórico y el tablero, que ordenan por fecha e id
+        Index("ix_inspecciones_fecha_id", "fecha_hora", "id"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
-    receta_id: Mapped[int | None] = mapped_column(ForeignKey("recetas.id"))
-    lote_id: Mapped[int | None] = mapped_column(ForeignKey("lotes.id"))
-    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"))
+    fecha_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora,
+                                                index=True)
+    receta_id: Mapped[int | None] = mapped_column(ForeignKey("recetas.id"), index=True)
+    lote_id: Mapped[int | None] = mapped_column(ForeignKey("lotes.id"), index=True)
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"), index=True)
     operador_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
     angulo: Mapped[float | None] = mapped_column(Numeric(5, 2))
     limite_min: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     limite_max: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
-    estado: Mapped[str] = mapped_column(String(12), nullable=False)
+    estado: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
     observacion: Mapped[str | None] = mapped_column(Text)
     origen: Mapped[str] = mapped_column(String(20), default="simulador")
     carpeta: Mapped[str | None] = mapped_column(Text)
@@ -185,7 +188,7 @@ class Auditoria(Base):
     accion: Mapped[str] = mapped_column(String(20), nullable=False)
     entidad: Mapped[str] = mapped_column(String(30), nullable=False)
     entidad_id: Mapped[int | None] = mapped_column(Integer)
-    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora, index=True)
     ip: Mapped[str | None] = mapped_column(String(45))
     detalle: Mapped[dict | None] = mapped_column(DETALLE_JSON)
 
