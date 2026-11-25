@@ -18,6 +18,66 @@ from sqlalchemy import func, select
 from app import db
 
 
+def completar_hoy(objetivo: int = 20) -> int:
+    """Asegura que el día de hoy tenga al menos `objetivo` inspecciones.
+
+    Sólo agrega si faltan: nunca duplica ni borra.
+    """
+    with db.SesionLocal() as s:
+        recetas = s.scalars(select(db.Receta)).all()
+        lotes = s.scalars(select(db.Lote)).all()
+        usuarios = s.scalars(select(db.Usuario)).all()
+        if not recetas or not lotes or not usuarios:
+            return 0
+        # La base guarda horas UTC sin zona; el día se calcula en hora local y se
+        # convierte, igual que hace la API.
+        local_inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        inicio = local_inicio.astimezone(timezone.utc).replace(tzinfo=None)
+        hoy = s.scalar(select(func.count()).select_from(db.Inspeccion)
+                       .where(db.Inspeccion.fecha_hora >= inicio)) or 0
+        faltan = objetivo - hoy
+        if faltan <= 0:
+            print(f"Hoy ya hay {hoy} inspecciones: no se agrega nada.")
+            return 0
+
+        azar = random.Random()
+        ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+        for i in range(faltan):
+            lote = azar.choice(lotes)
+            rec = s.get(db.Receta, lote.receta_id) or azar.choice(recetas)
+            batch = s.scalar(select(db.Batch).where(db.Batch.lote_id == lote.id))
+            minimo, maximo = float(rec.min_tol), float(rec.max_tol)
+            centro = (minimo + maximo) / 2
+            dado = azar.random()
+            if dado < 0.15:
+                angulo = round(azar.uniform(max(0, minimo - 12), max(1, minimo - 1)), 1)
+            elif dado < 0.22:
+                angulo = None
+            else:
+                angulo = round(min(180, max(1, azar.gauss(centro, (maximo - minimo) / 5))), 2)
+            estado = ("sin_receta" if angulo is None
+                      else "aprobado" if minimo <= angulo <= maximo else "rechazado")
+            minutos = int((ahora - inicio).total_seconds() // 60 * (i + 1) / (faltan + 1))
+            fecha = inicio + timedelta(minutes=max(1, minutos))
+            insp = db.Inspeccion(
+                fecha_hora=fecha, receta_id=rec.id, lote_id=lote.id,
+                batch_id=batch.id if batch else None,
+                operador_id=azar.choice(usuarios).id, material=rec.materialidad,
+                angulo=angulo, limite_min=minimo, limite_max=maximo, estado=estado,
+                origen="historico_demo", confianza="ALTA",
+                duracion_ms=azar.randint(1500, 2600))
+            s.add(insp)
+            s.flush()
+            if estado == "rechazado":
+                s.add(db.Alarma(inspeccion_id=insp.id, tipo="fuera_tolerancia",
+                                severidad="alta",
+                                mensaje=f"Ángulo {angulo}° fuera del rango {minimo}–{maximo}°",
+                                creada_en=fecha))
+        s.commit()
+    print(f"Hoy: {faltan} inspecciones agregadas.")
+    return 0
+
+
 def main(dias: int = 84, registros: int = 140) -> int:
     with db.SesionLocal() as s:
         recetas = s.scalars(select(db.Receta)).all()
@@ -87,4 +147,12 @@ if __name__ == "__main__":
         dias = int(args[args.index("--dias") + 1])
     if "--registros" in args:
         registros = int(args[args.index("--registros") + 1])
+    if "--hoy" in args:
+        objetivo = 20
+        if args.index("--hoy") + 1 < len(args):
+            try:
+                objetivo = int(args[args.index("--hoy") + 1])
+            except ValueError:
+                pass
+        raise SystemExit(completar_hoy(objetivo))
     raise SystemExit(main(dias, registros))

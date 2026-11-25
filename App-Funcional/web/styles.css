@@ -854,3 +854,51 @@ tbody tr:hover { background: rgba(182, 242, 74, .055); }
   font-size: .78rem;
   white-space: nowrap;
 }
+
+/* ============================== MARCA ==================================== */
+
+/* El azul corporativo necesita una placa clara para leerse sobre el fondo
+   oscuro; el logo va sin distorsión dentro de la placa. */
+.marca-placa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  background: #f3f7f0;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+}
+.marca-placa img {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+.logo.marca-placa { width: 54px; height: 54px; padding: 5px; }
+.sidebar .logo.marca-placa { width: 42px; height: 42px; padding: 4px; border-radius: 10px; }
+.sidebar .logo.marca-placa img { width: 100%; height: 100%; }
+
+.login-pie-marca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.login-pie-marca img { display: block; height: 42px; width: auto; opacity: .95; }
+.login-pie-marca span {
+  font-size: .72rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--texto-3);
+}
+
+/* hoja de la marca como marca de agua del panel de login */
+.login-panel { position: relative; overflow: hidden; }
+.hoja-marca {
+  position: absolute;
+  right: -30px;
+  bottom: 60px;
+  width: 320px;
+  opacity: .05;
+  pointer-events: none;
+  filter: saturate(1.2);
+}
