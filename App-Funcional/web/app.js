@@ -79,7 +79,7 @@ async function entrar(ev) {
     estado.access = j.access; estado.refresh = j.refresh; estado.usuario = j.usuario;
     estado.inactividadMin = j.inactividad_min || 20;
     $("pantalla-login").style.display = "none";
-    $("app").style.display = "flex";
+    $("app").style.display = "block";
     $("nombre-usuario").textContent = j.usuario.nombre;
     $("rol-usuario").textContent = j.usuario.rol;
     $("avatar").textContent = j.usuario.nombre.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();

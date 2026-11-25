@@ -828,3 +828,8 @@ tbody tr:hover { background: rgba(182, 242, 74, .055); }
 
 /* eje del gráfico de períodos */
 .grafico-operadores .g-eje { stroke: var(--borde); stroke-width: 1; }
+
+/* El contenedor de la app es un bloque; el aside va fijo. Si algo lo pone en
+   flex, el main debe estirarse igual (antes se encogía al contenido). */
+.app { display: block; }
+.app > main { flex: 1 1 auto; min-width: 0; width: auto; }
