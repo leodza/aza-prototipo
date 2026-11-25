@@ -185,14 +185,18 @@ function reloj() {
 const TITULOS = {
   dashboard: "Dashboard", historico: "Histórico de inspecciones",
   alarmas: "Alarmas de tolerancia", configuracion: "Configuración",
-  estadisticas: "Estadísticas por operador", informe: "Informe de gestión",
+  estadisticas: "Estadísticas por operador", operador: "Ficha del operador",
+  informe: "Informe de gestión",
   respaldos: "Respaldos de la base", detalle: "Detalle de la inspección",
   simulador: "Simulador de cámara", recetas: "Recetas y tolerancias",
   usuarios: "Usuarios y roles", auditoria: "Auditoría del sistema",
 };
 
 function irA(vista) {
-  if (!vistasPermitidas().includes(vista)) vista = "dashboard";   // el rol manda
+  if (!vistasPermitidas().includes(vista) &&
+      !(vista === "operador" && vistasPermitidas().includes("estadisticas"))) {
+    vista = "dashboard";                    // el rol manda
+  }
   document.querySelectorAll(".vista").forEach((v) => v.classList.toggle("activa", v.id === "v-" + vista));
   document.querySelectorAll("nav button").forEach((b) => {
     if (b.dataset.vista === vista) b.setAttribute("aria-current", "page");
@@ -927,7 +931,7 @@ async function cargarEstadisticas() {
       const nivel = o.aprobacion_pct >= 90 ? ["Alto", "aprobado"]
         : o.aprobacion_pct >= 75 ? ["Medio", "sin_receta"] : ["A revisar", "rechazado"];
       return `
-      <tr>
+      <tr class="fila-clic" onclick="verOperador('${esc(o.username)}')" title="Ver ficha de ${esc(o.nombre)}">
         <td><strong>${esc(o.nombre)}</strong><div class="muted mono">${esc(o.username)}</div></td>
         <td class="num mono">${o.total}</td>
         <td class="num mono">${o.aprobadas}</td>
@@ -1428,5 +1432,121 @@ async function importarRespaldo() {
     await cargarRespaldos();
   } catch (e) {
     msg.textContent = "✗ " + e.message;
+  }
+}
+
+/* ==================================================================== */
+/*  Ficha de un operador                                              */
+/* ==================================================================== */
+async function verOperador(username) {
+  irA("operador");
+  $("oper-banner").textContent = "Cargando la ficha de " + username + "…";
+  $("oper-cabecera").innerHTML = "";
+  $("oper-kpis").innerHTML = "";
+  $("oper-recetas").innerHTML = "";
+  $("oper-ultimas").innerHTML = "";
+  $("oper-ranking").innerHTML = "";
+  $("oper-evolucion").innerHTML = "";
+
+  try {
+    // La ficha muestra el histórico completo: así la evolución y el ranking
+    // tienen sentido (el filtro de fechas es para la tabla comparativa).
+    const d = await api(`/api/estadisticas/operador/${encodeURIComponent(username)}`);
+    const m = d.metricas;
+    const u = d.usuario;
+
+    $("oper-banner").innerHTML =
+      `<strong>${esc(u.nombre)}</strong> · ${esc(u.username)} · ${esc(u.rol)}` +
+      (d.ranking.puesto ? ` · puesto <b>${d.ranking.puesto}</b> de ${d.ranking.total}` : "") +
+      " · histórico completo" +
+      (u.activo ? "" : " · <b>cuenta inactiva</b>");
+
+    $("oper-cabecera").innerHTML = `
+      <div class="oper-ficha">
+        <div class="avatar grande">${esc(u.nombre.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase())}</div>
+        <div>
+          <h3 style="margin:0">${esc(u.nombre)}</h3>
+          <div class="sub">${esc(u.username)} · ${esc(u.rol)}${u.email ? " · " + esc(u.email) : ""}</div>
+          <div style="margin-top:8px">
+            ${(u.permisos || []).map((p) => `<span class="chip info">${esc(p)}</span>`).join(" ") || "<span class='muted'>Sin permisos extra</span>"}
+          </div>
+        </div>
+        <div class="oper-alarmas">
+          <div class="etq">Alarmas de sus inspecciones</div>
+          <div class="valor">${d.alarmas.total}</div>
+          <div class="delta">${d.alarmas.solucionadas} solucionadas</div>
+        </div>
+      </div>`;
+
+    const kpi = (etq, valor, delta, color) => `
+      <div class="card kpi"><div class="etq">${etq}</div>
+        <div class="valor" ${color ? `style="color:${color}"` : ""}>${valor}</div>
+        <div class="delta">${delta}</div></div>`;
+    $("oper-kpis").innerHTML =
+      kpi("Inspecciones", m.total, "en el período") +
+      kpi("Aprobadas", m.aprobadas, `${m.aprobacion_pct} % del total`, "var(--verde)") +
+      kpi("Rechazadas", m.rechazadas, `${m.total ? Math.round(100 * m.rechazadas / m.total) : 0} % del total`, "var(--rojo)") +
+      kpi("Ángulo medio", m.angulo_medio === null ? "—" : num(m.angulo_medio) + "°",
+          m.angulo_min === null ? "" : `${num(m.angulo_min)}° – ${num(m.angulo_max)}°`);
+
+    // evolución semanal
+    const caja = $("oper-evolucion");
+    if (d.evolucion.length) {
+      const ancho = 520, alto = 170, base = 140, techo = 16;
+      const max = Math.max(...d.evolucion.map((e) => e.total), 1);
+      const paso = (ancho - 40) / d.evolucion.length;
+      caja.innerHTML = `
+        <svg viewBox="0 0 ${ancho} ${alto}" class="grafico-operadores" role="img"
+             aria-label="Evolución semanal">
+          <line x1="20" y1="${base}" x2="${ancho - 10}" y2="${base}" class="g-eje"></line>
+          ${d.evolucion.map((e, i) => {
+            const x = 30 + i * paso;
+            const altoT = (base - techo) * (e.total / max);
+            const altoA = altoT * (e.aprobadas / (e.total || 1));
+            return `<rect x="${x}" y="${base - altoT}" width="${paso * 0.55}" height="${altoT}"
+                        rx="3" class="g-rech" opacity=".8"></rect>
+                    <rect x="${x}" y="${base - altoA}" width="${paso * 0.55}" height="${altoA}"
+                        rx="3" class="g-aprob"></rect>
+                    ${d.evolucion.length > 9 && i % 2 === 1
+                      ? ""
+                      : `<text x="${x + paso * 0.28}" y="${base + 15}" class="g-etq"
+                          text-anchor="middle" font-size="10">${esc(e.etiqueta)}</text>`}`;
+          }).join("")}
+        </svg>
+        <div class="leyenda-graf"><span><i class="lg-aprob"></i>aprobadas</span>
+          <span><i class="lg-rech"></i>rechazadas</span></div>`;
+    } else {
+      caja.innerHTML = `<div class="muted">Sin inspecciones en el período.</div>`;
+    }
+
+    // recetas
+    $("oper-recetas").innerHTML = d.recetas.map((r) => `
+      <tr><td>${esc(r.receta)}</td><td class="num mono">${r.total}</td>
+      <td class="num mono">${num(r.pct)} %</td></tr>`).join("")
+      || `<tr><td colspan="3" class="muted">Sin datos.</td></tr>`;
+
+    // últimas inspecciones (clicables)
+    $("oper-ultimas-sub").textContent =
+      `${d.ultimas.length} registros más recientes · haz clic para abrir el detalle`;
+    $("oper-ultimas").innerHTML = d.ultimas.map((i) => `
+      <tr class="fila-clic" onclick="verDetalle(${i.id})">
+        <td class="mono">${String(i.id).padStart(4, "0")}</td>
+        <td class="mono">${fecha(i.fecha_hora)}</td>
+        <td>${esc(i.receta || "—")}</td>
+        <td class="mono">${esc(i.lote || "—")}${i.batch ? " · " + esc(i.batch) : ""}</td>
+        <td class="num mono">${i.angulo === null ? "—" : num(i.angulo) + "°"}</td>
+        <td>${badge(i.estado)}</td>
+      </tr>`).join("") || `<tr><td colspan="6" class="muted">Sin registros.</td></tr>`;
+
+    // ranking
+    $("oper-ranking").innerHTML = d.ranking.tabla.map((x, n) => `
+      <tr class="${x.username === username ? "fila-actual" : ""}">
+        <td class="mono">${n + 1}</td>
+        <td>${esc(x.username)}</td>
+        <td class="num mono">${x.total}</td>
+        <td class="num mono">${num(x.pct)} %</td>
+      </tr>`).join("");
+  } catch (e) {
+    $("oper-banner").textContent = "Error: " + e.message;
   }
 }

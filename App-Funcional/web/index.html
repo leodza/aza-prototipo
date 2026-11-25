@@ -482,6 +482,49 @@
       </div>
     </section>
 
+    <!-- ---------------- FICHA DE OPERADOR ---------------- -->
+    <section class="vista" id="v-operador">
+      <div class="banner" id="oper-banner">Cargando operador…</div>
+      <div class="card" id="oper-cabecera"></div>
+      <div class="kpis" id="oper-kpis"></div>
+
+      <div class="dos-col">
+        <div class="card">
+          <h3>Evolución semanal</h3>
+          <div class="sub">Inspecciones y aprobación de las últimas 12 semanas</div>
+          <div id="oper-evolucion"></div>
+        </div>
+        <div class="card">
+          <h3>Recetas que trabajó</h3>
+          <div class="sub">Volumen y aprobación por receta</div>
+          <table>
+            <thead><tr><th>Receta</th><th class="num">Total</th><th class="num">% aprob.</th></tr></thead>
+            <tbody id="oper-recetas"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Últimas inspecciones</h3>
+        <div class="sub" id="oper-ultimas-sub">—</div>
+        <table>
+          <thead><tr><th>#</th><th>Fecha y hora</th><th>Receta</th><th>Lote · batch</th>
+            <th class="num">Ángulo</th><th>Estado</th></tr></thead>
+          <tbody id="oper-ultimas"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Ranking de operadores</h3>
+        <div class="sub">Comparación por porcentaje de aprobación</div>
+        <table>
+          <thead><tr><th>Puesto</th><th>Operador</th><th class="num">Inspecciones</th>
+            <th class="num">% aprobación</th></tr></thead>
+          <tbody id="oper-ranking"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- ---------------- INFORME DE GESTIÓN ---------------- -->
     <section class="vista" id="v-informe">
       <div class="banner">

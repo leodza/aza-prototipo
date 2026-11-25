@@ -920,6 +920,126 @@ def _permisos_de(u) -> list[str]:
         return []
 
 
+@app.get("/api/estadisticas/operador/{username}")
+def ficha_operador(username: str, desde: str | None = None, hasta: str | None = None,
+                   usuario: dict = Depends(requiere("supervisor", "administrador",
+                                                    permiso="ver_estadisticas"))):
+    """Ficha completa de un operador: métricas, recetas, evolución y últimos registros."""
+    with db.SesionLocal() as s:
+        u = s.scalar(select(db.Usuario).where(db.Usuario.username == username))
+        if not u:
+            raise HTTPException(404, f"No existe el operador {username}")
+
+        def rango(q):
+            if desde:
+                q = q.where(db.Inspeccion.fecha_hora
+                            >= _a_utc_naive(datetime.fromisoformat(desde)))
+            if hasta:
+                q = q.where(db.Inspeccion.fecha_hora
+                            < _a_utc_naive(datetime.fromisoformat(hasta) + timedelta(days=1)))
+            return q
+
+        base = rango(select(db.Inspeccion).where(db.Inspeccion.operador_id == u.id))
+        inspecciones = s.scalars(base).all()
+
+        total = len(inspecciones)
+        aprob = sum(1 for i in inspecciones if i.estado == "aprobado")
+        rech = sum(1 for i in inspecciones if i.estado == "rechazado")
+        sin = sum(1 for i in inspecciones if i.estado == "sin_receta")
+        angulos = [float(i.angulo) for i in inspecciones if i.angulo is not None]
+        duraciones = [i.duracion_ms for i in inspecciones if i.duracion_ms]
+
+        # recetas usadas
+        por_receta = {}
+        for i in inspecciones:
+            nombre = i.receta.nombre if i.receta else "Sin receta"
+            fila = por_receta.setdefault(nombre, {"receta": nombre, "total": 0, "aprobadas": 0})
+            fila["total"] += 1
+            if i.estado == "aprobado":
+                fila["aprobadas"] += 1
+        recetas = []
+        for f in sorted(por_receta.values(), key=lambda x: -x["total"]):
+            f["pct"] = round(100 * f["aprobadas"] / f["total"], 1) if f["total"] else 0
+            recetas.append(f)
+
+        # lotes
+        por_lote = {}
+        for i in inspecciones:
+            clave = i.lote.codigo if i.lote else "—"
+            por_lote[clave] = por_lote.get(clave, 0) + 1
+        lotes = [{"lote": k, "total": v}
+                 for k, v in sorted(por_lote.items(), key=lambda x: -x[1])]
+
+        # evolución por semana
+        semanas = {}
+        for i in inspecciones:
+            fecha = i.fecha_hora
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+            fecha = fecha.astimezone()
+            iso = fecha.isocalendar()
+            clave = (iso[0], iso[1])
+            fila = semanas.setdefault(clave, {"etiqueta": f"S{iso[1]}/{str(iso[0])[2:]}",
+                                              "total": 0, "aprobadas": 0})
+            fila["total"] += 1
+            if i.estado == "aprobado":
+                fila["aprobadas"] += 1
+        evolucion = [semanas[k] for k in sorted(semanas)][-12:]
+        for f in evolucion:
+            f["pct"] = round(100 * f["aprobadas"] / f["total"], 1) if f["total"] else 0
+
+        # últimas inspecciones
+        recientes = sorted(inspecciones, key=lambda i: i.fecha_hora, reverse=True)[:10]
+        ultimas = [{
+            "id": i.id, "fecha_hora": _iso(i.fecha_hora),
+            "receta": i.receta.nombre if i.receta else None,
+            "lote": i.lote.codigo if i.lote else None,
+            "batch": f"B{i.batch.numero}" if i.batch else None,
+            "angulo": float(i.angulo) if i.angulo is not None else None,
+            "estado": i.estado,
+        } for i in recientes]
+
+        # alarmas de sus inspecciones
+        alarmas = s.execute(
+            select(func.count(db.Alarma.id),
+                   func.sum(case((db.Alarma.estado == "solucionada", 1), else_=0)))
+            .join(db.Inspeccion, db.Alarma.inspeccion_id == db.Inspeccion.id)
+            .where(db.Inspeccion.operador_id == u.id)).one()
+
+        # ranking entre operadores con datos
+        q_rank = (select(db.Usuario.username,
+                         func.count(db.Inspeccion.id).label("total"),
+                         func.sum(case((db.Inspeccion.estado == "aprobado", 1), else_=0)).label("ok"))
+                  .join(db.Inspeccion, db.Inspeccion.operador_id == db.Usuario.id)
+                  .group_by(db.Usuario.username))
+        ranking = s.execute(rango(q_rank)).all()
+        tabla = [{"username": r.username, "total": int(r.total),
+                  "pct": round(100 * int(r.ok or 0) / int(r.total), 1)}
+                 for r in ranking if r.total]
+        tabla.sort(key=lambda x: (-x["pct"], -x["total"]))
+        puesto = next((n + 1 for n, x in enumerate(tabla) if x["username"] == username), None)
+
+        return {
+            "usuario": {"username": u.username, "nombre": u.nombre, "rol": u.rol.nombre,
+                        "email": u.email, "activo": u.activo,
+                        "permisos": _permisos_de(u)},
+            "metricas": {
+                "total": total, "aprobadas": aprob, "rechazadas": rech, "sin_receta": sin,
+                "aprobacion_pct": round(100 * aprob / total, 1) if total else 0,
+                "angulo_medio": round(sum(angulos) / len(angulos), 1) if angulos else None,
+                "angulo_min": round(min(angulos), 1) if angulos else None,
+                "angulo_max": round(max(angulos), 1) if angulos else None,
+                "duracion_media_ms": int(sum(duraciones) / len(duraciones)) if duraciones else None,
+            },
+            "recetas": recetas,
+            "lotes": lotes[:8],
+            "evolucion": evolucion,
+            "ultimas": ultimas,
+            "alarmas": {"total": int(alarmas[0] or 0), "solucionadas": int(alarmas[1] or 0)},
+            "ranking": {"puesto": puesto, "total": len(tabla), "tabla": tabla},
+        }
+
+
 @app.get("/api/estadisticas/periodos")
 def informe_periodos(granularidad: str = "semana",
                      desde: str | None = None, hasta: str | None = None,

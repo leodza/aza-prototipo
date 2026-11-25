@@ -902,3 +902,42 @@ tbody tr:hover { background: rgba(182, 242, 74, .055); }
   pointer-events: none;
   filter: saturate(1.2);
 }
+
+/* ============================== FICHA OPERADOR =========================== */
+
+.fila-clic { cursor: pointer; }
+.fila-clic:hover { background: rgba(182, 242, 74, .07) !important; }
+.fila-actual { background: rgba(182, 242, 74, .09); }
+.fila-actual td { font-weight: 600; }
+
+.oper-ficha {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.avatar.grande {
+  width: 62px;
+  height: 62px;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+.oper-alarmas {
+  margin-left: auto;
+  text-align: right;
+  padding-left: 20px;
+  border-left: 1px solid var(--borde);
+}
+.oper-alarmas .etq {
+  font-size: .68rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--texto-3);
+}
+.oper-alarmas .valor {
+  font-family: var(--titulo);
+  font-size: 1.7rem;
+  color: var(--ambar);
+  line-height: 1.1;
+}
+.oper-alarmas .delta { font-size: .74rem; color: var(--texto-3); }

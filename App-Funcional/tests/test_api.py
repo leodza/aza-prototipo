@@ -626,3 +626,36 @@ def test_recetas_no_muestran_errores(cliente):
                            "web", "app.js"), encoding="utf-8").read()
     assert 'form-receta' not in js
     assert 'form-material' not in js
+
+# --------------------------------------------------------------------------- #
+# ficha por operador
+# --------------------------------------------------------------------------- #
+def test_ficha_operador(cliente):
+    d = _login(cliente, "jsarabia")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.get("/api/estadisticas/operador/jsarabia", headers=cab)
+    assert r.status_code == 200, r.text
+    ficha = r.json()
+    assert ficha["usuario"]["username"] == "jsarabia"
+    assert set(ficha["metricas"]) >= {"total", "aprobadas", "rechazadas", "aprobacion_pct"}
+    for clave in ("recetas", "lotes", "evolucion", "ultimas", "alarmas", "ranking"):
+        assert clave in ficha
+    assert isinstance(ficha["recetas"], list)
+    assert ficha["ranking"]["total"] >= 1
+    if ficha["ultimas"]:
+        for campo in ("id", "fecha_hora", "angulo", "estado"):
+            assert campo in ficha["ultimas"][0]
+
+
+def test_ficha_operador_inexistente(cliente):
+    d = _login(cliente, "dparedes")
+    r = cliente.get("/api/estadisticas/operador/fantasma",
+                    headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 404
+
+
+def test_ficha_operador_requiere_permiso(cliente):
+    d = _login(cliente, "ldaza")
+    r = cliente.get("/api/estadisticas/operador/jasarabia".replace("jasa", "jsa"),
+                    headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 403
