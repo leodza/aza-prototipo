@@ -755,6 +755,9 @@ def listar_respaldos(usuario: dict = Depends(requiere("administrador", permiso="
 def crear_respaldo(usuario: dict = Depends(requiere("administrador", permiso="gestionar_respaldos"))):
     meta = respaldos.generar(f"manual-{usuario.get('sub') or usuario.get('uid')}")
     with db.SesionLocal() as s:
+        cfg = _config(s)
+    _podar_respaldos(cfg.get("respaldo_max", 10))
+    with db.SesionLocal() as s:
         _auditar(s, usuario["uid"], "respaldo", "sistema", None,
                  detalle={"archivo": meta["archivo"], "total": meta["total"]})
         s.commit()
@@ -779,6 +782,34 @@ def restaurar_respaldo(datos: RestaurarIn, usuario: dict = Depends(requiere("adm
                  detalle={"archivo": datos.archivo, "insertados": insertados})
         s.commit()
     return {"ok": True, "insertados": insertados}
+
+
+class ImportarIn(BaseModel):
+    nombre: str = "importado"
+    respaldo: dict
+
+
+@app.post("/api/respaldos/importar", status_code=201)
+def importar_respaldo(datos: ImportarIn,
+                      usuario: dict = Depends(requiere("administrador",
+                                                       permiso="gestionar_respaldos"))):
+    """Guarda un respaldo que viene de otro equipo para poder restaurarlo."""
+    contenido = datos.respaldo or {}
+    meta = contenido.get("meta") or {}
+    if not isinstance(contenido.get("datos"), dict):
+        raise HTTPException(422, "El archivo no tiene el formato de un respaldo de AZA")
+    if meta.get("version") != respaldos.VERSION:
+        raise HTTPException(422, "La versión del respaldo no es compatible")
+    faltan = [tabla for tabla in respaldos.MODELOS if tabla not in contenido["datos"]]
+    if faltan:
+        raise HTTPException(422, "Al respaldo le faltan tablas: " + ", ".join(faltan))
+
+    guardado = respaldos.guardar_externo(contenido, datos.nombre)
+    with db.SesionLocal() as s:
+        _auditar(s, usuario["uid"], "importar", "sistema", None,
+                 detalle={"archivo": guardado["archivo"], "total": guardado["total"]})
+        s.commit()
+    return guardado
 
 
 class CompararIn(BaseModel):

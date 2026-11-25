@@ -343,7 +343,7 @@
               <option value="supervisor">Supervisor</option>
               <option value="administrador">Administrador</option>
             </select></div>
-          <div><label for="u-pin">Contraseña</label><input id="u-pin" type="password" autocomplete="new-password" placeholder="Mín. 8 con mayúscula, minúscula y número"></div>
+          <div><label for="u-pin">Contraseña</label><input id="u-pin" type="password" autocomplete="new-password" placeholder="8+ con mayúscula y número"></div>
           <div><button class="btn" onclick="crearUsuario()">+ Agregar</button></div>
         </div>
         <div class="muted" id="usuario-msg" style="font-size:.82rem;margin-top:8px"></div>
@@ -536,6 +536,17 @@
             <th class="num">Tamaño</th><th>Origen</th><th>Acciones</th></tr></thead>
           <tbody id="tabla-respaldos"></tbody>
         </table>
+      </div>
+
+      <div class="card">
+        <h3>Importar respaldo</h3>
+        <div class="sub">Trae una copia hecha en otro equipo para poder restaurarla o compararla.</div>
+        <div class="filtros" style="grid-template-columns:1fr auto">
+          <div><label for="archivo-respaldo">Archivo de respaldo (.json)</label>
+            <input id="archivo-respaldo" type="file" accept=".json,application/json"></div>
+          <div style="align-self:end"><button class="btn" onclick="importarRespaldo()">Importar</button></div>
+        </div>
+        <div class="muted" id="importar-msg" style="font-size:.82rem;margin-top:6px"></div>
       </div>
 
       <div class="card">

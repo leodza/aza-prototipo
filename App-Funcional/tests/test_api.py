@@ -588,3 +588,41 @@ def test_informe_solo_supervisores(cliente):
     r = cliente.get("/api/estadisticas/periodos",
                     headers={"Authorization": "Bearer " + d["access"]})
     assert r.status_code == 403
+
+# --------------------------------------------------------------------------- #
+# importar respaldo desde archivo externo
+# --------------------------------------------------------------------------- #
+def test_importar_respaldo_externo(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    meta = cliente.post("/api/respaldos", headers=cab).json()
+    contenido = cliente.get(f"/api/respaldos/{meta['archivo']}", headers=cab).json()
+    r = cliente.post("/api/respaldos/importar", headers=cab,
+                     json={"nombre": "equipo2", "respaldo": contenido})
+    assert r.status_code == 201, r.text
+    importado = r.json()
+    assert importado["total"] == meta["total"]
+    assert "importado" in importado["archivo"]
+    # se puede restaurar
+    r = cliente.post("/api/respaldos/restaurar", headers=cab,
+                     json={"archivo": importado["archivo"]})
+    assert r.status_code == 200
+
+
+def test_importar_respaldo_invalido(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    assert cliente.post("/api/respaldos/importar", headers=cab,
+                        json={"nombre": "x", "respaldo": {"datos": 5}}).status_code == 422
+    assert cliente.post("/api/respaldos/importar", headers=cab,
+                        json={"nombre": "x",
+                              "respaldo": {"meta": {"version": 99}, "datos": {}}}).status_code == 422
+
+
+def test_recetas_no_muestran_errores(cliente):
+    """Regresión: la vista de recetas mostraba un error de JS en la tabla."""
+    import os
+    js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "web", "app.js"), encoding="utf-8").read()
+    assert 'form-receta' not in js
+    assert 'form-material' not in js

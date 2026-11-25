@@ -523,7 +523,6 @@ async function cargarRecetas() {
   try {
     const d = await api("/api/recetas");
     const admin = estado.usuario && estado.usuario.rol === "administrador";
-    $("form-receta").hidden = !admin;
     $("tabla-recetas").innerHTML = d.map((r) => `
       <tr>
         <td class="mono">#${r.id}</td>
@@ -544,7 +543,6 @@ async function cargarMateriales() {
   try {
     const d = await api("/api/materiales");
     const admin = estado.usuario && estado.usuario.rol === "administrador";
-    $("form-material").hidden = !admin;
     $("tabla-materiales").innerHTML = d.map((m) => `
       <tr>
         <td class="mono">#${m.id}</td>
@@ -1396,4 +1394,39 @@ function descargarInformePeriodos() {
   a.download = `informe-${d.granularidad}-${d.rango.desde}.html`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+/* ==================================================================== */
+/*  Importar un respaldo desde archivo                                 */
+/* ==================================================================== */
+async function importarRespaldo() {
+  const input = $("archivo-respaldo");
+  const msg = $("importar-msg");
+  if (!input || !input.files || !input.files.length) {
+    msg.textContent = "Elegí un archivo .json primero.";
+    return;
+  }
+  const archivo = input.files[0];
+  let contenido;
+  try {
+    contenido = JSON.parse(await archivo.text());
+  } catch (_) {
+    msg.textContent = "✗ El archivo no es un JSON válido.";
+    return;
+  }
+  msg.textContent = "Importando…";
+  try {
+    const r = await api("/api/respaldos/importar", {
+      method: "POST",
+      body: JSON.stringify({
+        nombre: archivo.name.replace(/\.json$/i, ""),
+        respaldo: contenido,
+      }),
+    });
+    msg.textContent = `✓ Importado: ${r.total} registros (${r.archivo}). Ya puedes restaurarlo o compararlo.`;
+    input.value = "";
+    await cargarRespaldos();
+  } catch (e) {
+    msg.textContent = "✗ " + e.message;
+  }
 }

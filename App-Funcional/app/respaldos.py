@@ -191,3 +191,26 @@ def restaurar(datos_respaldo: dict) -> dict:
             insertados[tabla] = len(objetos)
         s.commit()
     return insertados
+
+
+def guardar_externo(contenido: dict, nombre: str = "importado") -> dict:
+    """Guarda un respaldo traído de otro equipo (sin restaurarlo todavía)."""
+    os.makedirs(DIR, exist_ok=True)
+    meta = dict(contenido.get("meta") or {})
+    datos = contenido.get("datos") or {}
+    conteos = {k: len(v) for k, v in datos.items()}
+    meta.update({
+        "version": VERSION,
+        "importado": datetime.now(timezone.utc).isoformat(),
+        "etiqueta": f"importado-{nombre}",
+        "conteos": conteos,
+        "total": sum(conteos.values()),
+        "huella": meta.get("huella") or _huella(datos),
+    })
+    archivo = _nombre_archivo(f"importado-{nombre}")
+    ruta = os.path.join(DIR, archivo)
+    with open(ruta, "w", encoding="utf-8") as fh:
+        json.dump({"meta": meta, "datos": datos}, fh, ensure_ascii=False, indent=1)
+    meta["archivo"] = archivo
+    meta["bytes"] = os.path.getsize(ruta)
+    return meta

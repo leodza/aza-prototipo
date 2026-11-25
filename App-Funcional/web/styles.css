@@ -833,3 +833,24 @@ tbody tr:hover { background: rgba(182, 242, 74, .055); }
    flex, el main debe estirarse igual (antes se encogía al contenido). */
 .app { display: block; }
 .app > main { flex: 1 1 auto; min-width: 0; width: auto; }
+
+/* ============================== USUARIOS ================================= */
+
+/* La tabla de usuarios necesita aire: ocupa todo el ancho y la matriz RBAC
+   pasa debajo. */
+#v-usuarios .dos-col { grid-template-columns: 1fr; }
+#v-usuarios table { width: 100%; }
+#v-usuarios td, #v-usuarios th { padding: 12px 14px; vertical-align: middle; }
+#v-usuarios td:first-child { white-space: nowrap; }
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.acciones .btn {
+  padding: 7px 12px;
+  font-size: .78rem;
+  white-space: nowrap;
+}
