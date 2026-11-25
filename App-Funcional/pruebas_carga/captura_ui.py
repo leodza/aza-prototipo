@@ -97,6 +97,8 @@ try:
 
     for vista, archivo in [("recetas", "43_recetas_botones.png"),
                            ("alarmas", "45_alarmas.png"),
+                           ("estadisticas", "48_estadisticas.png"),
+                           ("respaldos", "49_respaldos.png"),
                            ("configuracion", "46_configuracion.png"),
                            ("historico", "47_historico_operador.png")]:
         nav.js(f"irA('{vista}')")

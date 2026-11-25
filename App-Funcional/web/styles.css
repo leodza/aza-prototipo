@@ -759,3 +759,14 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .escala-leyenda { display: flex; justify-content: space-between; }
 
 .grid { display: grid; }
+
+/* ============================== ESTADÍSTICAS ============================= */
+.grafico-operadores { width: 100%; height: auto; }
+.grafico-operadores .g-etq { fill: var(--texto-2); font-size: 13px; font-family: var(--fuente); }
+.grafico-operadores .g-val { fill: var(--texto-3); font-size: 12px; font-family: var(--mono); }
+.grafico-operadores .g-aprob { fill: var(--verde); }
+.grafico-operadores .g-rech { fill: var(--rojo); }
+.grafico-operadores .g-sin { fill: var(--ambar); }
+.leyenda-graf i.lg-aprob { background: var(--verde); }
+.leyenda-graf i.lg-rech { background: var(--rojo); }
+.leyenda-graf i.lg-sin { background: var(--ambar); }

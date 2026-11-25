@@ -24,7 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from . import almacenamiento, db, simulador
+from sqlalchemy import case
+
+from . import almacenamiento, db, respaldos, simulador
 from .seguridad import (MAX_INTENTOS, BLOQUEO_MIN, crear_jwt, hash_pin, hash_refresh,
                         iguales, leer_jwt, nuevo_refresh, validar_clave,
                         verificar_pin)
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
     with db.SesionLocal() as s:
         sembrar(s)
     threading.Thread(target=_precalentar, daemon=True).start()
+    threading.Thread(target=_respaldo_automatico, daemon=True).start()
     yield
 
 
@@ -166,7 +169,7 @@ def sembrar(s):
         s.add(db.Inspeccion(
             fecha_hora=_a_utc_naive(fecha_local),
             receta_id=rec.id, lote_id=lote.id, batch_id=batch.id,
-            operador_id=usuarios[0].id, material=rec.materialidad,
+            operador_id=azar.choice(usuarios[:3]).id, material=rec.materialidad,
             angulo=angulo, limite_min=min_t, limite_max=max_t, estado=estado,
             origen="historico_demo", confianza="ALTA", duracion_ms=azar.randint(1500, 2600)))
     s.commit()
@@ -651,6 +654,8 @@ class ConfigIn(BaseModel):
     bloqueo_min: int = Field(ge=1, le=1440)
     inactividad_min: int = Field(ge=1, le=240)
     sesion_unica: int = Field(ge=0, le=1)
+    respaldo_horas: int = Field(default=24, ge=0, le=168)
+    respaldo_max: int = Field(default=10, ge=1, le=50)
 
 
 @app.put("/api/configuracion")
@@ -686,6 +691,153 @@ def olvido(datos: OlvidoIn):
         s.commit()
     return {"ok": True,
             "mensaje": "Solicitud enviada. El administrador debe restablecer la contraseña."}
+
+
+# --------------------------------------------------------------------------- #
+# respaldos
+# --------------------------------------------------------------------------- #
+def _podar_respaldos(maximo: int) -> int:
+    lista = respaldos.listar()
+    borrados = 0
+    for viejo in lista[maximo:]:
+        try:
+            os.remove(respaldos.ruta_de(viejo["archivo"]))
+            borrados += 1
+        except OSError:
+            pass
+    return borrados
+
+
+def _respaldo_automatico():
+    """Hilo que crea un respaldo cuando se cumple el intervalo configurado."""
+    time.sleep(45)                       # dejar arrancar el servidor
+    while True:
+        try:
+            with db.SesionLocal() as s:
+                cfg = _config(s)
+            horas = cfg.get("respaldo_horas", 24)
+            if horas > 0:
+                lista = respaldos.listar()
+                vencido = True
+                if lista and lista[0].get("generado"):
+                    try:
+                        ultimo = datetime.fromisoformat(lista[0]["generado"])
+                        vencido = (datetime.now(timezone.utc) - ultimo).total_seconds() >= horas * 3600
+                    except ValueError:
+                        vencido = True
+                if vencido:
+                    meta = respaldos.generar("automatico")
+                    _podar_respaldos(cfg.get("respaldo_max", 10))
+                    with db.SesionLocal() as s:
+                        _auditar(s, None, "respaldo", "sistema", None,
+                                 detalle={"archivo": meta["archivo"],
+                                          "total": meta["total"]})
+                        s.commit()
+        except Exception:                # noqa: BLE001
+            traceback.print_exc()
+        time.sleep(300)
+
+
+@app.get("/api/respaldos")
+def listar_respaldos(usuario: dict = Depends(requiere("administrador"))):
+    with db.SesionLocal() as s:
+        cfg = _config(s)
+    return {"respaldos": respaldos.listar(),
+            "configuracion": {"horas": cfg.get("respaldo_horas"),
+                              "maximo": cfg.get("respaldo_max")}}
+
+
+@app.post("/api/respaldos", status_code=201)
+def crear_respaldo(usuario: dict = Depends(requiere("administrador"))):
+    meta = respaldos.generar(f"manual-{usuario.get('sub') or usuario.get('uid')}")
+    with db.SesionLocal() as s:
+        _auditar(s, usuario["uid"], "respaldo", "sistema", None,
+                 detalle={"archivo": meta["archivo"], "total": meta["total"]})
+        s.commit()
+    return meta
+
+
+class RestaurarIn(BaseModel):
+    archivo: str
+
+
+@app.post("/api/respaldos/restaurar")
+def restaurar_respaldo(datos: RestaurarIn, usuario: dict = Depends(requiere("administrador"))):
+    try:
+        contenido = respaldos.leer(datos.archivo)
+        insertados = respaldos.restaurar(contenido)
+    except FileNotFoundError:
+        raise HTTPException(404, "No existe ese respaldo")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    with db.SesionLocal() as s:
+        _auditar(s, usuario["uid"], "restaurar", "sistema", None,
+                 detalle={"archivo": datos.archivo, "insertados": insertados})
+        s.commit()
+    return {"ok": True, "insertados": insertados}
+
+
+class CompararIn(BaseModel):
+    a: str
+    b: str
+
+
+@app.post("/api/respaldos/comparar")
+def comparar_respaldos(datos: CompararIn, usuario: dict = Depends(requiere("administrador"))):
+    try:
+        return respaldos.comparar(datos.a, datos.b)
+    except FileNotFoundError:
+        raise HTTPException(404, "Falta uno de los respaldos a comparar")
+
+
+@app.get("/api/respaldos/{archivo}")
+def descargar_respaldo(archivo: str, usuario: dict = Depends(requiere("administrador"))):
+    ruta = respaldos.ruta_de(archivo)
+    if not os.path.exists(ruta):
+        raise HTTPException(404, "No existe ese respaldo")
+    return FileResponse(ruta, media_type="application/json", filename=archivo)
+
+
+# --------------------------------------------------------------------------- #
+# estadísticas por operador
+# --------------------------------------------------------------------------- #
+@app.get("/api/estadisticas/operadores")
+def estadisticas_operadores(desde: str | None = None, hasta: str | None = None,
+                            usuario: dict = Depends(requiere("supervisor", "administrador"))):
+    with db.SesionLocal() as s:
+        aprobadas = func.sum(case((db.Inspeccion.estado == "aprobado", 1), else_=0))
+        rechazadas = func.sum(case((db.Inspeccion.estado == "rechazado", 1), else_=0))
+        sin_receta = func.sum(case((db.Inspeccion.estado == "sin_receta", 1), else_=0))
+        q = (select(db.Usuario.id, db.Usuario.nombre, db.Usuario.username,
+                    func.count(db.Inspeccion.id).label("total"),
+                    aprobadas.label("aprobadas"), rechazadas.label("rechazadas"),
+                    sin_receta.label("sin_receta"),
+                    func.avg(db.Inspeccion.angulo).label("angulo"),
+                    func.avg(db.Inspeccion.duracion_ms).label("duracion"))
+             .join(db.Inspeccion, db.Inspeccion.operador_id == db.Usuario.id)
+             .group_by(db.Usuario.id, db.Usuario.nombre, db.Usuario.username))
+        if desde:
+            q = q.where(db.Inspeccion.fecha_hora >= _a_utc_naive(datetime.fromisoformat(desde)))
+        if hasta:
+            q = q.where(db.Inspeccion.fecha_hora
+                        < _a_utc_naive(datetime.fromisoformat(hasta) + timedelta(days=1)))
+        filas = s.execute(q).all()
+
+    salida = []
+    for f in filas:
+        total = int(f.total or 0)
+        aprob = int(f.aprobadas or 0)
+        rech = int(f.rechazadas or 0)
+        salida.append({
+            "id": f.id, "nombre": f.nombre, "username": f.username,
+            "total": total, "aprobadas": aprob, "rechazadas": rech,
+            "sin_receta": int(f.sin_receta or 0),
+            "aprobacion_pct": round(100 * aprob / total, 1) if total else 0,
+            "angulo_medio": round(float(f.angulo), 1) if f.angulo is not None else None,
+            "duracion_media_ms": int(f.duracion) if f.duracion else None,
+        })
+    salida.sort(key=lambda x: (-x["aprobacion_pct"], -x["total"]))
+    return salida
 
 
 def _detalle_legible(detalle) -> str:

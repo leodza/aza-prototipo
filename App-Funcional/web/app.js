@@ -118,6 +118,7 @@ async function arrancar() {
   aplicarPermisos();
   ocultarTecnico();
   iniciarInactividad();
+  if ($("est-desde")) { $("est-desde").value = hoyLocal(); $("est-hasta").value = hoyLocal(); }
   await Promise.all([cargarDashboard(), cargarSelects()]);
   if (rolActual() === "administrador") cargarConfiguracion();
   irA("dashboard");                 // siempre se vuelve al menú principal al entrar
@@ -164,7 +165,8 @@ function reloj() {
 /* ------------------------------------------------------------------ navegación */
 const TITULOS = {
   dashboard: "Dashboard", historico: "Histórico de inspecciones",
-  alarmas: "Alarmas de tolerancia", configuracion: "Configuración", detalle: "Detalle de la inspección",
+  alarmas: "Alarmas de tolerancia", configuracion: "Configuración",
+  estadisticas: "Estadísticas por operador", respaldos: "Respaldos de la base", detalle: "Detalle de la inspección",
   simulador: "Simulador de cámara", recetas: "Recetas y tolerancias",
   usuarios: "Usuarios y roles", auditoria: "Auditoría del sistema",
 };
@@ -182,6 +184,8 @@ function irA(vista) {
   if (vista === "usuarios") cargarUsuarios();
   if (vista === "alarmas") cargarAlarmas();
   if (vista === "configuracion") { cargarConfiguracion(); cargarSolicitudes(); }
+  if (vista === "estadisticas") cargarEstadisticas();
+  if (vista === "respaldos") cargarRespaldos();
   if (vista === "auditoria") cargarAuditoria();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -878,4 +882,190 @@ function iniciarInactividad() {
       salir("La sesión se cerró por inactividad. Vuelve a entrar.");
     }
   }, 15000);
+}
+
+/* ==================================================================== */
+/*  Estadísticas por operador                                          */
+/* ==================================================================== */
+async function cargarEstadisticas() {
+  const cuerpo = $("tabla-estadisticas");
+  if (!cuerpo) return;
+  const q = new URLSearchParams();
+  if ($("est-desde").value) q.set("desde", $("est-desde").value);
+  if ($("est-hasta").value) q.set("hasta", $("est-hasta").value);
+  try {
+    const d = await api("/api/estadisticas/operadores?" + q);
+    const total = d.reduce((a, x) => a + x.total, 0);
+    const aprob = d.reduce((a, x) => a + x.aprobadas, 0);
+    $("est-sub").textContent = d.length
+      ? `${total} inspecciones · ${aprob} aprobadas (${total ? Math.round(100 * aprob / total) : 0} % del total)`
+      : "Sin datos en el período";
+
+    dibujarGraficoOperadores(d);
+
+    cuerpo.innerHTML = d.map((o) => {
+      const nivel = o.aprobacion_pct >= 90 ? ["Alto", "aprobado"]
+        : o.aprobacion_pct >= 75 ? ["Medio", "sin_receta"] : ["A revisar", "rechazado"];
+      return `
+      <tr>
+        <td><strong>${esc(o.nombre)}</strong><div class="muted mono">${esc(o.username)}</div></td>
+        <td class="num mono">${o.total}</td>
+        <td class="num mono">${o.aprobadas}</td>
+        <td class="num mono">${o.rechazadas}</td>
+        <td class="num mono"><strong>${num(o.aprobacion_pct)} %</strong></td>
+        <td class="num mono">${o.angulo_medio === null ? "—" : num(o.angulo_medio) + "°"}</td>
+        <td class="num mono">${o.duracion_media_ms ? (o.duracion_media_ms / 1000).toFixed(1) + " s" : "—"}</td>
+        <td><span class="estado ${nivel[1]}">${nivel[0]}</span></td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="8" class="muted">Sin inspecciones en el período.</td></tr>`;
+  } catch (e) {
+    cuerpo.innerHTML = `<tr><td colspan="8" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function dibujarGraficoOperadores(datos) {
+  const caja = $("est-grafico");
+  if (!caja) return;
+  if (!datos.length) { caja.innerHTML = `<div class="muted">Sin datos para graficar.</div>`; return; }
+  const altoFila = 44;
+  const alto = datos.length * altoFila + 26;
+  const ancho = 760;
+  const margenEtiqueta = 150;
+  const maxTotal = Math.max(...datos.map((d) => d.total), 1);
+  const escala = (ancho - margenEtiqueta - 90) / maxTotal;
+
+  const filas = datos.map((o, i) => {
+    const y = 14 + i * altoFila;
+    const anchoAprob = o.aprobadas * escala;
+    const anchoRech = o.rechazadas * escala;
+    const anchoSin = o.sin_receta * escala;
+    return `
+      <g>
+        <text x="0" y="${y + 18}" class="g-etq">${esc(o.nombre.split(" ")[0])}</text>
+        <rect x="${margenEtiqueta}" y="${y}" width="${anchoAprob}" height="20" rx="4" class="g-aprob"></rect>
+        <rect x="${margenEtiqueta + anchoAprob}" y="${y}" width="${anchoRech}" height="20" rx="4" class="g-rech"></rect>
+        <rect x="${margenEtiqueta + anchoAprob + anchoRech}" y="${y}" width="${anchoSin}" height="20" rx="4" class="g-sin"></rect>
+        <text x="${margenEtiqueta + anchoAprob + anchoRech + anchoSin + 10}" y="${y + 15}"
+              class="g-val">${num(o.aprobacion_pct)} % · ${o.total}</text>
+      </g>`;
+  }).join("");
+
+  caja.innerHTML = `
+    <svg viewBox="0 0 ${ancho} ${alto}" class="grafico-operadores" role="img"
+         aria-label="Comparación de operadores">
+      ${filas}
+    </svg>
+    <div class="leyenda-graf">
+      <span><i class="lg-aprob"></i>aprobadas</span>
+      <span><i class="lg-rech"></i>rechazadas</span>
+      <span><i class="lg-sin"></i>sin receta</span>
+    </div>`;
+}
+
+/* ==================================================================== */
+/*  Respaldos                                                          */
+/* ==================================================================== */
+async function cargarRespaldos() {
+  const cuerpo = $("tabla-respaldos");
+  if (!cuerpo) return;
+  try {
+    const d = await api("/api/respaldos");
+    const lista = d.respaldos || [];
+    const cfg = d.configuracion || {};
+    $("resp-sub").textContent =
+      `${lista.length} copias · automático cada ${cfg.horas} h · se conservan ${cfg.maximo}`;
+
+    cuerpo.innerHTML = lista.map((r) => {
+      const origen = /automatico/.test(r.archivo) ? "automático" : "manual";
+      return `
+      <tr>
+        <td class="mono">${esc(r.archivo.replace("respaldo-", ""))}</td>
+        <td class="mono">${fecha(r.generado)}</td>
+        <td class="num mono">${r.total}</td>
+        <td class="num mono">${(r.bytes / 1024).toFixed(0)} KB</td>
+        <td>${origen === "automático"
+              ? '<span class="chip info">automático</span>'
+              : '<span class="chip">manual</span>'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sec" onclick="descargarRespaldo('${esc(r.archivo)}')">Descargar</button>
+          <button class="btn peligro-suave" onclick="restaurarRespaldo('${esc(r.archivo)}')">Restaurar</button>
+        </td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="6" class="muted">Todavía no hay respaldos.</td></tr>`;
+
+    const opciones = lista.map((r) =>
+      `<option value="${esc(r.archivo)}">${fecha(r.generado)} · ${r.total} reg.</option>`).join("");
+    if ($("cmp-a")) $("cmp-a").innerHTML = opciones;
+    if ($("cmp-b")) $("cmp-b").innerHTML = opciones;
+    if (lista.length > 1 && $("cmp-a")) $("cmp-a").selectedIndex = 1;
+  } catch (e) {
+    cuerpo.innerHTML = `<tr><td colspan="6" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function crearRespaldo() {
+  try {
+    const r = await api("/api/respaldos", { method: "POST" });
+    await cargarRespaldos();
+    alert(`Respaldo creado: ${r.total} registros, huella ${r.huella}`);
+  } catch (e) {
+    alert("No se pudo crear el respaldo: " + e.message);
+  }
+}
+
+async function descargarRespaldo(archivo) {
+  try {
+    const r = await fetch(`/api/respaldos/${encodeURIComponent(archivo)}`, {
+      headers: { Authorization: "Bearer " + estado.access },
+    });
+    if (!r.ok) throw new Error("No se pudo descargar");
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = archivo;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function restaurarRespaldo(archivo) {
+  if (!confirm(`¿Restaurar «${archivo}»?\n\nSe reemplaza el contenido actual de la base por el de esa copia.`)) return;
+  if (!confirm("Esta acción no se puede deshacer. ¿Confirmas la restauración?")) return;
+  try {
+    const r = await api("/api/respaldos/restaurar", {
+      method: "POST", body: JSON.stringify({ archivo }),
+    });
+    alert(`Restaurado. Registros recuperados: ${r.insertados.inspecciones} inspecciones, ` +
+          `${r.insertados.usuarios} usuarios.`);
+    await cargarRespaldos();
+    await cargarDashboard();
+  } catch (e) {
+    alert("No se pudo restaurar: " + e.message);
+  }
+}
+
+async function compararRespaldos() {
+  const caja = $("cmp-resultado");
+  const a = $("cmp-a").value, b = $("cmp-b").value;
+  if (!a || !b) { caja.innerHTML = `<div class="muted">Selecciona dos respaldos.</div>`; return; }
+  try {
+    const d = await api("/api/respaldos/comparar", {
+      method: "POST", body: JSON.stringify({ a, b }),
+    });
+    const filas = d.tablas.map((f) => `
+      <tr><td>${esc(f.tabla)}</td><td class="num mono">${f.a}</td><td class="num mono">${f.b}</td>
+      <td class="num mono" style="color:${f.diferencia > 0 ? "var(--verde)" : f.diferencia < 0 ? "var(--rojo)" : "var(--texto-3)"}">
+        ${f.diferencia > 0 ? "+" : ""}${f.diferencia}</td></tr>`).join("");
+    caja.innerHTML = `
+      <div class="banner ${d.iguales ? "verde" : "ambar"}" style="margin-top:14px">
+        ${d.iguales ? "Los dos respaldos tienen el mismo contenido (huella idéntica)."
+                    : `Contenido distinto: ${d.a.total} registros en A frente a ${d.b.total} en B.`}
+      </div>
+      <table><thead><tr><th>Tabla</th><th class="num">A</th><th class="num">B</th><th class="num">Diferencia</th></tr></thead>
+      <tbody>${filas}</tbody></table>`;
+  } catch (e) {
+    caja.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
+  }
 }

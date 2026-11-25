@@ -381,18 +381,24 @@ def test_configuracion_solo_admin(cliente):
 
 
 def test_solicitud_de_contrasena(cliente):
-    r = cliente.post("/api/auth/olvido", json={"identificador": "ldaza@aza.cl"})
-    assert r.status_code == 200
-    assert "solicitud" in r.json()["mensaje"].lower()
     d = _login(cliente, "dparedes")
     cab = {"Authorization": "Bearer " + d["access"]}
+    # se usa una cuenta creada para la prueba, para no alterar las de demostración
+    r = cliente.post("/api/usuarios", headers=cab,
+                     json={"username": "olvidado", "nombre": "Cuenta Olvidada",
+                           "rol": "operador", "pin": "AzaLab2026"})
+    assert r.status_code == 201
+    r = cliente.post("/api/auth/olvido", json={"identificador": "olvidado"})
+    assert r.status_code == 200
+    assert "solicitud" in r.json()["mensaje"].lower()
     lista = cliente.get("/api/solicitudes", headers=cab).json()
-    pendiente = next(x for x in lista if x["estado"] == "pendiente")
+    pendiente = next(x for x in lista
+                     if x["estado"] == "pendiente" and x["username"] == "olvidado")
     r = cliente.post(f"/api/solicitudes/{pendiente['id']}/resolver", headers=cab,
                      json={"nueva_clave": "NuevaClave2026", "nota": "Prueba"})
     assert r.status_code == 200
     assert cliente.post("/api/auth/login",
-                        json={"username": "ldaza", "pin": "NuevaClave2026"}).status_code == 200
+                        json={"username": "olvidado", "pin": "NuevaClave2026"}).status_code == 200
 
 
 def test_alarmas_y_flujo_de_revision(cliente):
@@ -433,3 +439,61 @@ def test_auditoria_con_detalle_legible(cliente):
     con_detalle = [e for e in eventos if e.get("detalle_texto")]
     assert con_detalle, "la bitácora debe exponer el detalle en texto"
     assert "[object Object]" not in " ".join(e["detalle_texto"] for e in con_detalle)
+
+
+# --------------------------------------------------------------------------- #
+# respaldos y estadísticas
+# --------------------------------------------------------------------------- #
+def test_respaldo_crear_listar_y_restaurar(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.post("/api/respaldos", headers=cab)
+    assert r.status_code == 201, r.text
+    meta = r.json()
+    assert meta["total"] > 0 and meta["huella"]
+    lista = cliente.get("/api/respaldos", headers=cab).json()
+    assert any(x["archivo"] == meta["archivo"] for x in lista["respaldos"])
+    assert lista["configuracion"]["horas"] >= 1
+    r = cliente.post("/api/respaldos/restaurar", headers=cab,
+                     json={"archivo": meta["archivo"]})
+    assert r.status_code == 200
+    assert r.json()["insertados"]["inspecciones"] > 0
+
+
+def test_respaldo_comparar(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    a = cliente.post("/api/respaldos", headers=cab).json()["archivo"]
+    b = cliente.post("/api/respaldos", headers=cab).json()["archivo"]
+    r = cliente.post("/api/respaldos/comparar", headers=cab, json={"a": a, "b": b})
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert "tablas" in cuerpo and "iguales" in cuerpo
+
+
+def test_respaldo_solo_admin(cliente):
+    d = _login(cliente, "jsarabia")          # supervisor: no puede gestionar respaldos
+    r = cliente.get("/api/respaldos", headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 403
+
+
+def test_estadisticas_por_operador(cliente):
+    d = _login(cliente, "jsarabia")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    datos = cliente.get("/api/estadisticas/operadores", headers=cab).json()
+    assert datos, "debe devolver al menos un operador"
+    primero = datos[0]
+    for campo in ("nombre", "total", "aprobadas", "rechazadas", "aprobacion_pct"):
+        assert campo in primero
+    assert 0 <= primero["aprobacion_pct"] <= 100
+
+
+def test_login_sin_credenciales_expuestas():
+    """El login no debe traer usuario ni clave precargados."""
+    import os
+    html = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "web", "index.html"), encoding="utf-8").read()
+    assert 'value="1234"' not in html
+    assert "lista-usuarios" not in html
+    assert 'autocomplete="new-password"' in html
+    assert 'autocomplete="off"' in html

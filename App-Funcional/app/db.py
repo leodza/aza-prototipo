@@ -226,6 +226,8 @@ CONFIG_DEFECTOS = {
     "bloqueo_min": ("15", "Minutos que dura el bloqueo de la cuenta"),
     "inactividad_min": ("20", "Minutos de inactividad antes de cerrar la sesión"),
     "sesion_unica": ("1", "1 = una sola sesión activa por usuario"),
+    "respaldo_horas": ("24", "Horas entre respaldos automáticos (0 = desactivado)"),
+    "respaldo_max": ("10", "Cuántos respaldos se conservan"),
 }
 
 

@@ -46,26 +46,22 @@
 
       <div class="campo">
         <label for="login-usuario">Usuario, correo o nombre</label>
-        <input id="login-usuario" list="lista-usuarios" autocomplete="username"
-               placeholder="ldaza  ·  ldaza@aza.cl  ·  Leonardo Daza" required>
-        <datalist id="lista-usuarios">
-          <option value="ldaza">Leonardo Daza · operador</option>
-          <option value="jsarabia">José Sarabia · supervisor</option>
-          <option value="dparedes">Daniel Paredes · administrador</option>
-        </datalist>
+        <input id="login-usuario" name="identificador-acceso" type="text"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="Tu usuario, correo o nombre" required>
       </div>
 
       <div class="campo">
         <label for="login-pin">Contraseña</label>
-        <input id="login-pin" type="password" autocomplete="current-password"
-               placeholder="••••••••" value="1234">
+        <input id="login-pin" name="clave-acceso" type="password"
+               autocomplete="new-password" placeholder="Tu contraseña">
       </div>
 
       <button class="btn" type="submit" id="btn-login" style="width:100%">Entrar</button>
       <div class="login-pie" id="login-error"></div>
 
       <div class="login-ayuda">
-        <span>Acceso de demostración: <b>1234</b></span>
+        <span class="muted">Solo personal autorizado</span>
         <button type="button" onclick="olvidarClave()">¿Olvidaste tu contraseña?</button>
       </div>
     </form>
@@ -91,7 +87,9 @@
       <button data-vista="simulador" data-roles="operador,supervisor,administrador"><span class="ic">◎</span> Simulador</button>
       <button data-vista="recetas" data-roles="operador,supervisor,administrador"><span class="ic">⚙</span> Recetas</button>
       <button data-vista="alarmas" data-roles="operador,supervisor,administrador"><span class="ic">⚠</span> Alarmas</button>
+      <button data-vista="estadisticas" data-roles="supervisor,administrador"><span class="ic">▦</span> Estadísticas</button>
       <button data-vista="usuarios" data-roles="administrador"><span class="ic">👥</span> Usuarios</button>
+      <button data-vista="respaldos" data-roles="administrador"><span class="ic">⭯</span> Respaldos</button>
       <button data-vista="configuracion" data-roles="administrador"><span class="ic">⚙</span> Configuración</button>
       <button data-vista="auditoria" data-roles="supervisor,administrador"><span class="ic">✎</span> Auditoría</button>
     </nav>
@@ -443,6 +441,61 @@
             <th>Estado</th><th>Acción</th></tr></thead>
           <tbody id="tabla-solicitudes"></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- ---------------- ESTADÍSTICAS ---------------- -->
+    <section class="vista" id="v-estadisticas">
+      <div class="banner">
+        <strong>Comparación de operadores.</strong> Mide el desempeño de cada persona en el período:
+        cuántas inspecciones hizo, qué proporción aprobó y cuánto tardó el análisis.
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          <div><h3>Rendimiento por operador</h3><div class="sub" id="est-sub">—</div></div>
+          <div style="display:flex;gap:10px;align-items:end">
+            <div><label for="est-desde">Desde</label><input id="est-desde" type="date"></div>
+            <div><label for="est-hasta">Hasta</label><input id="est-hasta" type="date"></div>
+            <button class="btn" onclick="cargarEstadisticas()">Aplicar</button>
+          </div>
+        </div>
+        <div id="est-grafico" class="est-grafico"></div>
+        <table style="margin-top:14px">
+          <thead><tr><th>Operador</th><th class="num">Total</th><th class="num">Aprobadas</th>
+            <th class="num">Rechazadas</th><th class="num">% aprobación</th>
+            <th class="num">Ángulo medio</th><th class="num">Tiempo medio</th><th>Desempeño</th></tr></thead>
+          <tbody id="tabla-estadisticas"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------------- RESPALDOS ---------------- -->
+    <section class="vista" id="v-respaldos">
+      <div class="banner">
+        <strong>Copias de seguridad.</strong> Un respaldo guarda el contenido completo de la base en un
+        archivo con huella de verificación. Se puede descargar, comparar con otro y restaurar.
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;gap:12px">
+          <div><h3>Respaldos disponibles</h3><div class="sub" id="resp-sub">—</div></div>
+          <button class="btn" onclick="crearRespaldo()">Crear respaldo ahora</button>
+        </div>
+        <table>
+          <thead><tr><th>Archivo</th><th>Generado</th><th class="num">Registros</th>
+            <th class="num">Tamaño</th><th>Origen</th><th>Acciones</th></tr></thead>
+          <tbody id="tabla-respaldos"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Comparar dos respaldos</h3>
+        <div class="sub">Muestra qué tablas crecieron o disminuyeron entre una copia y otra.</div>
+        <div class="filtros" style="grid-template-columns:1fr 1fr auto">
+          <div><label for="cmp-a">Respaldo A (anterior)</label><select id="cmp-a"></select></div>
+          <div><label for="cmp-b">Respaldo B (reciente)</label><select id="cmp-b"></select></div>
+          <div><button class="btn" onclick="compararRespaldos()">Comparar</button></div>
+        </div>
+        <div id="cmp-resultado"></div>
       </div>
     </section>
 
