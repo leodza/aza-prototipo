@@ -88,6 +88,7 @@
       <button data-vista="recetas" data-roles="operador,supervisor,administrador"><span class="ic">⚙</span> Recetas</button>
       <button data-vista="alarmas" data-roles="operador,supervisor,administrador"><span class="ic">⚠</span> Alarmas</button>
       <button data-vista="estadisticas" data-roles="supervisor,administrador"><span class="ic">▦</span> Estadísticas</button>
+      <button data-vista="informe" data-roles="supervisor,administrador"><span class="ic">▤</span> Informe</button>
       <button data-vista="usuarios" data-roles="administrador"><span class="ic">👥</span> Usuarios</button>
       <button data-vista="respaldos" data-roles="administrador"><span class="ic">⭯</span> Respaldos</button>
       <button data-vista="configuracion" data-roles="administrador"><span class="ic">⚙</span> Configuración</button>
@@ -233,7 +234,7 @@
       <div class="card" id="det-tecnico-card" style="margin-top:16px" hidden>
         <h3>Trazabilidad técnica</h3>
         <div class="sub">Datos que el pipeline y la base conservan de esta inspección</div>
-        <dl id="det-tecnico"></dl>
+        <dl id="det-tecnico" class="lista-def tecnico"></dl>
         <h3 style="margin-top:18px">Bitácora del registro</h3>
         <div class="sub">Eventos de auditoría asociados (solo lectura)</div>
         <div class="pasos" id="det-auditoria"></div>
@@ -480,6 +481,42 @@
           </div>
         </div>
         <div id="cmp-operadores-resultado"></div>
+      </div>
+    </section>
+
+    <!-- ---------------- INFORME DE GESTIÓN ---------------- -->
+    <section class="vista" id="v-informe">
+      <div class="banner">
+        <strong>Informe de gestión por períodos.</strong> Compara la producción semana a semana o mes a mes,
+        y observa la variación frente al período anterior equivalente.
+      </div>
+
+      <div class="card">
+        <div class="filtros" style="grid-template-columns:auto 1fr 1fr auto auto">
+          <div><label for="inf-gran">Agrupar por</label>
+            <select id="inf-gran" onchange="cargarInforme()">
+              <option value="semana">Semana</option>
+              <option value="mes">Mes</option>
+            </select></div>
+          <div><label for="inf-desde">Desde</label><input id="inf-desde" type="date"></div>
+          <div><label for="inf-hasta">Hasta</label><input id="inf-hasta" type="date"></div>
+          <div style="align-self:end"><button class="btn" onclick="cargarInforme()">Generar</button></div>
+          <div style="align-self:end"><button class="btn sec" onclick="descargarInformePeriodos()">Descargar</button></div>
+        </div>
+      </div>
+
+      <div class="kpis" id="inf-kpis"></div>
+
+      <div class="card">
+        <h3>Producción por período</h3>
+        <div class="sub" id="inf-sub">—</div>
+        <div id="inf-grafico"></div>
+        <table style="margin-top:14px">
+          <thead><tr><th>Período</th><th>Desde</th><th>Hasta</th><th class="num">Total</th>
+            <th class="num">Aprobadas</th><th class="num">Rechazadas</th>
+            <th class="num">% aprobación</th><th class="num">Ángulo medio</th></tr></thead>
+          <tbody id="tabla-informe"></tbody>
+        </table>
       </div>
     </section>
 

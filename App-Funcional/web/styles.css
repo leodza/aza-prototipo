@@ -783,3 +783,48 @@ td.gana { color: var(--lima); font-weight: 700; }
 .perm-item:hover { border-color: var(--lima); }
 .perm-item input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--lima); }
 .perm-item small { font-size: .76rem; }
+
+/* ============================== ANCHO DE VISTAS ========================== */
+
+/* El tablero usa todo el ancho disponible; las vistas de lectura se centran
+   con un máximo para que las líneas no se estiren de más. */
+#v-dashboard, #v-simulador { max-width: none; }
+#v-historico, #v-detalle, #v-auditoria, #v-recetas, #v-usuarios,
+#v-respaldos, #v-configuracion, #v-estadisticas, #v-informe, #v-alarmas {
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+/* Trazabilidad técnica en dos columnas */
+.lista-def.tecnico {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 28px;
+}
+
+/* ============================== HOVER GENERAL ============================ */
+
+.card, .kpi {
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease,
+              transform .18s ease;
+}
+.card:hover {
+  border-color: #33503d;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .28);
+  background: #121c16;
+}
+.kpi:hover {
+  border-color: rgba(182, 242, 74, .45);
+  transform: translateY(-1px);
+}
+tbody tr:hover { background: rgba(182, 242, 74, .055); }
+.pasos li { transition: border-color .18s, background .18s, transform .18s; }
+.pasos li:hover {
+  border-color: rgba(182, 242, 74, .45);
+  background: var(--sup-3);
+  transform: translateY(-1px);
+}
+#nav button:hover { background: var(--sup-2); color: var(--lima); }
+.login-card:hover { border-color: #33503d; }
+
+/* eje del gráfico de períodos */
+.grafico-operadores .g-eje { stroke: var(--borde); stroke-width: 1; }

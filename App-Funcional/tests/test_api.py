@@ -549,3 +549,42 @@ def test_permisos_granulares(cliente):
     op3 = _login(cliente, "ldaza")
     assert cliente.get("/api/estadisticas/operadores",
                        headers={"Authorization": "Bearer " + op3["access"]}).status_code == 403
+
+# --------------------------------------------------------------------------- #
+# informe de gestión por períodos
+# --------------------------------------------------------------------------- #
+def test_informe_por_semanas(cliente):
+    d = _login(cliente, "jsarabia")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.get("/api/estadisticas/periodos?granularidad=semana", headers=cab)
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert cuerpo["granularidad"] == "semana"
+    assert "periodos" in cuerpo and "totales" in cuerpo and "variacion" in cuerpo
+    assert set(cuerpo["variacion"]) == {"total", "aprobadas", "rechazadas"}
+    if cuerpo["periodos"]:
+        cubo = cuerpo["periodos"][0]
+        for campo in ("etiqueta", "total", "aprobadas", "aprobacion_pct", "desde", "hasta"):
+            assert campo in cubo
+
+
+def test_informe_por_meses(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.get("/api/estadisticas/periodos?granularidad=mes", headers=cab)
+    assert r.status_code == 200
+    assert r.json()["granularidad"] == "mes"
+
+
+def test_informe_granularidad_invalida(cliente):
+    d = _login(cliente, "dparedes")
+    r = cliente.get("/api/estadisticas/periodos?granularidad=dia",
+                    headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 422
+
+
+def test_informe_solo_supervisores(cliente):
+    d = _login(cliente, "ldaza")
+    r = cliente.get("/api/estadisticas/periodos",
+                    headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 403

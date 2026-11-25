@@ -119,6 +119,14 @@ try:
     nav.captura("51_permisos_usuario.png")
     nav.js("cerrarModal('modal-permisos')")
 
+    nav.js("irA('informe')")
+    time.sleep(3)
+    nav.captura("53_informe_periodos.png")
+
+    nav.js("verDetalle(5)")
+    time.sleep(2.5)
+    nav.captura("52_detalle_ancho.png")
+
     nav.js("irA('recetas'); abrirModal('modal-receta')")
     time.sleep(1.5)
     nav.captura("44_modal_receta.png")

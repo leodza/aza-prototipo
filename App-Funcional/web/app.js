@@ -119,6 +119,11 @@ async function arrancar() {
   ocultarTecnico();
   iniciarInactividad();
   if ($("est-desde")) { $("est-desde").value = hoyLocal(); $("est-hasta").value = hoyLocal(); }
+  if ($("inf-desde")) {
+    $("inf-hasta").value = hoyLocal();
+    const d0 = new Date(); d0.setDate(d0.getDate() - 83);
+    $("inf-desde").value = d0.toISOString().slice(0, 10);
+  }
   await Promise.all([cargarDashboard(), cargarSelects()]);
   if (rolActual() === "administrador") cargarConfiguracion();
   irA("dashboard");                 // siempre se vuelve al menú principal al entrar
@@ -180,7 +185,8 @@ function reloj() {
 const TITULOS = {
   dashboard: "Dashboard", historico: "Histórico de inspecciones",
   alarmas: "Alarmas de tolerancia", configuracion: "Configuración",
-  estadisticas: "Estadísticas por operador", respaldos: "Respaldos de la base", detalle: "Detalle de la inspección",
+  estadisticas: "Estadísticas por operador", informe: "Informe de gestión",
+  respaldos: "Respaldos de la base", detalle: "Detalle de la inspección",
   simulador: "Simulador de cámara", recetas: "Recetas y tolerancias",
   usuarios: "Usuarios y roles", auditoria: "Auditoría del sistema",
 };
@@ -199,6 +205,7 @@ function irA(vista) {
   if (vista === "alarmas") cargarAlarmas();
   if (vista === "configuracion") { cargarConfiguracion(); cargarSolicitudes(); }
   if (vista === "estadisticas") { cargarEstadisticas(); cargarSelectsOperadores(); }
+  if (vista === "informe") cargarInforme();
   if (vista === "respaldos") cargarRespaldos();
   if (vista === "auditoria") cargarAuditoria();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -1258,4 +1265,135 @@ async function guardarPermisos() {
   } catch (e) {
     $("perm-msg").textContent = "✗ " + e.message;
   }
+}
+
+/* ==================================================================== */
+/*  Informe de gestión por períodos                                    */
+/* ==================================================================== */
+let informeActual = null;
+
+async function cargarInforme() {
+  const q = new URLSearchParams({ granularidad: $("inf-gran").value || "semana" });
+  if ($("inf-desde").value) q.set("desde", $("inf-desde").value);
+  if ($("inf-hasta").value) q.set("hasta", $("inf-hasta").value);
+  try {
+    const d = await api("/api/estadisticas/periodos?" + q);
+    informeActual = d;
+
+    const varTotal = d.variacion.total === null ? "—"
+      : (d.variacion.total > 0 ? "+" : "") + num(d.variacion.total) + " %";
+    const varClase = d.variacion.total === null ? "" : d.variacion.total >= 0 ? "pos" : "neg";
+    $("inf-kpis").innerHTML = `
+      <div class="card kpi"><div class="etq">Inspecciones</div>
+        <div class="valor">${d.totales.total}</div>
+        <div class="delta ${varClase}">${varTotal} vs período anterior</div></div>
+      <div class="card kpi"><div class="etq">Aprobadas</div>
+        <div class="valor" style="color:var(--verde)">${d.totales.aprobadas}</div>
+        <div class="delta">${d.aprobacion_pct} % del total</div></div>
+      <div class="card kpi"><div class="etq">Rechazadas</div>
+        <div class="valor" style="color:var(--rojo)">${d.totales.rechazadas}</div>
+        <div class="delta">${d.anterior.aprobacion_pct} % aprobación previa</div></div>
+      <div class="card kpi"><div class="etq">Períodos</div>
+        <div class="valor">${d.periodos.length}</div>
+        <div class="delta">${d.granularidad === "semana" ? "semanas" : "meses"} analizados</div></div>`;
+
+    $("inf-sub").textContent =
+      `${d.rango.desde} a ${d.rango.hasta} · comparado con ${d.anterior.rango.desde} a ${d.anterior.rango.hasta}`;
+
+    dibujarGraficoPeriodos(d.periodos);
+
+    $("tabla-informe").innerHTML = d.periodos.map((p) => `
+      <tr>
+        <td><strong>${esc(p.etiqueta)}</strong></td>
+        <td class="mono">${p.desde}</td>
+        <td class="mono">${p.hasta}</td>
+        <td class="num mono">${p.total}</td>
+        <td class="num mono">${p.aprobadas}</td>
+        <td class="num mono">${p.rechazadas}</td>
+        <td class="num mono">${num(p.aprobacion_pct)} %</td>
+        <td class="num mono">${p.angulo_medio === null ? "—" : num(p.angulo_medio) + "°"}</td>
+      </tr>`).join("") || `<tr><td colspan="8" class="muted">Sin datos en el rango elegido.</td></tr>`;
+  } catch (e) {
+    $("inf-sub").textContent = "Error: " + e.message;
+  }
+}
+
+function dibujarGraficoPeriodos(periodos) {
+  const caja = $("inf-grafico");
+  if (!caja) return;
+  if (!periodos.length) { caja.innerHTML = `<div class="muted">Sin datos para graficar.</div>`; return; }
+  const ancho = 820, alto = 220, base = 180, techo = 20;
+  const max = Math.max(...periodos.map((p) => p.total), 1);
+  const paso = (ancho - 60) / periodos.length;
+  const barras = periodos.map((p, i) => {
+    const x = 40 + i * paso + paso * 0.15;
+    const anchoB = paso * 0.7;
+    const altoTotal = (base - techo) * (p.total / max);
+    const altoAprob = altoTotal * (p.aprobadas / (p.total || 1));
+    return `
+      <rect x="${x}" y="${base - altoTotal}" width="${anchoB}" height="${altoTotal}"
+            rx="4" class="g-rech" opacity=".85"></rect>
+      <rect x="${x}" y="${base - altoAprob}" width="${anchoB}" height="${altoAprob}"
+            rx="4" class="g-aprob"></rect>
+      <text x="${x + anchoB / 2}" y="${base - altoTotal - 6}" class="g-val"
+            text-anchor="middle">${p.total}</text>
+      <text x="${x + anchoB / 2}" y="${base + 16}" class="g-etq" text-anchor="middle"
+            font-size="10">${esc(p.etiqueta.replace("Semana ", "S").replace(" · ", "/"))}</text>`;
+  }).join("");
+  caja.innerHTML = `
+    <svg viewBox="0 0 ${ancho} ${alto}" class="grafico-operadores" role="img"
+         aria-label="Producción por período">
+      <line x1="30" y1="${base}" x2="${ancho - 10}" y2="${base}" class="g-eje"></line>
+      ${barras}
+    </svg>
+    <div class="leyenda-graf">
+      <span><i class="lg-aprob"></i>aprobadas</span>
+      <span><i class="lg-rech"></i>rechazadas o sin receta</span>
+    </div>`;
+}
+
+function descargarInformePeriodos() {
+  if (!informeActual) { alert("Primero genera el informe."); return; }
+  const d = informeActual;
+  const filas = d.periodos.map((p) => `
+    <tr><td>${esc(p.etiqueta)}</td><td>${p.desde}</td><td>${p.hasta}</td>
+    <td>${p.total}</td><td>${p.aprobadas}</td><td>${p.rechazadas}</td>
+    <td>${p.aprobacion_pct} %</td><td>${p.angulo_medio ?? "—"}°</td></tr>`).join("");
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+    <title>Informe de gestión · AZA Analyzer</title>
+    <style>
+      body{font-family:Segoe UI,system-ui,sans-serif;color:#111;margin:38px;font-size:13px}
+      h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:22px 0 8px}
+      .sub{color:#555;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;margin:10px 0}
+      th,td{border:1px solid #ccc;padding:7px 9px}
+      th{background:#eee;text-align:left} td:nth-child(n+4){text-align:right}
+      .kpi{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:10px 14px;margin-right:10px}
+      .kpi b{display:block;font-size:20px}
+    </style></head><body>
+    <h1>Informe de gestión · ${d.granularidad === "semana" ? "semanal" : "mensual"}</h1>
+    <div class="sub">AZA Analyzer · ${d.rango.desde} a ${d.rango.hasta} ·
+      comparado con ${d.anterior.rango.desde} a ${d.anterior.rango.hasta}</div>
+    <div>
+      <span class="kpi">Inspecciones <b>${d.totales.total}</b></span>
+      <span class="kpi">Aprobadas <b>${d.totales.aprobadas}</b></span>
+      <span class="kpi">Rechazadas <b>${d.totales.rechazadas}</b></span>
+      <span class="kpi">% aprobación <b>${d.aprobacion_pct} %</b></span>
+    </div>
+    <h2>Detalle por período</h2>
+    <table><tr><th>Período</th><th>Desde</th><th>Hasta</th><th>Total</th><th>Aprobadas</th>
+      <th>Rechazadas</th><th>% aprobación</th><th>Ángulo medio</th></tr>${filas}</table>
+    <h2>Variación frente al período anterior</h2>
+    <table><tr><th>Métrica</th><th>Variación</th></tr>
+      <tr><td>Inspecciones</td><td>${d.variacion.total ?? "—"} %</td></tr>
+      <tr><td>Aprobadas</td><td>${d.variacion.aprobadas ?? "—"} %</td></tr>
+      <tr><td>Rechazadas</td><td>${d.variacion.rechazadas ?? "—"} %</td></tr>
+    </table>
+    </body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `informe-${d.granularidad}-${d.rango.desde}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }

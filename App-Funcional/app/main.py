@@ -889,6 +889,100 @@ def _permisos_de(u) -> list[str]:
         return []
 
 
+@app.get("/api/estadisticas/periodos")
+def informe_periodos(granularidad: str = "semana",
+                     desde: str | None = None, hasta: str | None = None,
+                     usuario: dict = Depends(requiere("supervisor", "administrador",
+                                                      permiso="ver_estadisticas"))):
+    """Agrupa las inspecciones por semana o mes y compara con el período anterior."""
+    if granularidad not in ("semana", "mes"):
+        raise HTTPException(422, "La granularidad debe ser «semana» o «mes»")
+    fin = datetime.fromisoformat(hasta) if hasta else datetime.now()
+    inicio = datetime.fromisoformat(desde) if desde else (fin - timedelta(days=84))
+
+    def tramo(fecha: datetime) -> tuple:
+        if granularidad == "semana":
+            iso = fecha.isocalendar()
+            clave = (iso[0], iso[1])
+            etiqueta = f"Semana {iso[1]} · {iso[0]}"
+        else:
+            clave = (fecha.year, fecha.month)
+            meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                     "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+            etiqueta = f"{meses[fecha.month - 1].capitalize()} {fecha.year}"
+        return clave, etiqueta
+
+    def recolectar(ini: datetime, fin2: datetime) -> dict:
+        with db.SesionLocal() as s:
+            filas = s.scalars(select(db.Inspeccion).where(
+                db.Inspeccion.fecha_hora >= _a_utc_naive(ini),
+                db.Inspeccion.fecha_hora < _a_utc_naive(fin2))).all()
+        cubos = {}
+        for f in filas:
+            fecha = f.fecha_hora
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+            fecha = fecha.astimezone()
+            clave, etiqueta = tramo(fecha)
+            cubo = cubos.setdefault(clave, {"clave": list(clave), "etiqueta": etiqueta,
+                                            "total": 0, "aprobadas": 0, "rechazadas": 0,
+                                            "sin_receta": 0, "angulos": [], "desde": fecha,
+                                            "hasta": fecha})
+            cubo["total"] += 1
+            cubo["desde"] = min(cubo["desde"], fecha)
+            cubo["hasta"] = max(cubo["hasta"], fecha)
+            if f.estado == "aprobado":
+                cubo["aprobadas"] += 1
+            elif f.estado == "rechazado":
+                cubo["rechazadas"] += 1
+            else:
+                cubo["sin_receta"] += 1
+            if f.angulo is not None:
+                cubo["angulos"].append(float(f.angulo))
+        salida = []
+        for clave in sorted(cubos):
+            c = cubos[clave]
+            c["aprobacion_pct"] = round(100 * c["aprobadas"] / c["total"], 1) if c["total"] else 0
+            c["angulo_medio"] = round(sum(c["angulos"]) / len(c["angulos"]), 1) if c["angulos"] else None
+            c["desde"] = c["desde"].strftime("%Y-%m-%d")
+            c["hasta"] = c["hasta"].strftime("%Y-%m-%d")
+            c.pop("angulos", None)
+            salida.append(c)
+        return {"cubos": salida,
+                "totales": {"total": len(filas),
+                            "aprobadas": sum(1 for f in filas if f.estado == "aprobado"),
+                            "rechazadas": sum(1 for f in filas if f.estado == "rechazado")}}
+
+    actual = recolectar(inicio, fin)
+    largo = (fin - inicio).days or 1
+    previo = recolectar(inicio - timedelta(days=largo), inicio)
+
+    def variacion(ahora: float, antes: float) -> float | None:
+        if not antes:
+            return None
+        return round(100 * (ahora - antes) / antes, 1)
+
+    tot_a, tot_p = actual["totales"], previo["totales"]
+    return {
+        "granularidad": granularidad,
+        "rango": {"desde": inicio.strftime("%Y-%m-%d"), "hasta": fin.strftime("%Y-%m-%d")},
+        "periodos": actual["cubos"],
+        "totales": tot_a,
+        "anterior": {
+            "rango": {"desde": (inicio - timedelta(days=largo)).strftime("%Y-%m-%d"),
+                      "hasta": inicio.strftime("%Y-%m-%d")},
+            "totales": tot_p,
+            "aprobacion_pct": round(100 * tot_p["aprobadas"] / tot_p["total"], 1) if tot_p["total"] else 0,
+        },
+        "variacion": {
+            "total": variacion(tot_a["total"], tot_p["total"]),
+            "aprobadas": variacion(tot_a["aprobadas"], tot_p["aprobadas"]),
+            "rechazadas": variacion(tot_a["rechazadas"], tot_p["rechazadas"]),
+        },
+        "aprobacion_pct": round(100 * tot_a["aprobadas"] / tot_a["total"], 1) if tot_a["total"] else 0,
+    }
+
+
 @app.get("/api/estadisticas/comparar")
 def comparar_operadores(a: str, b: str, desde: str | None = None, hasta: str | None = None,
                         usuario: dict = Depends(requiere("supervisor", "administrador",
