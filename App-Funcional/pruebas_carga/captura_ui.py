@@ -112,8 +112,10 @@ try:
     nav.captura("50_comparador_pares.png")
     nav.js("window.scrollTo(0, 0)")
 
-    nav.js("irA('usuarios'); abrirPermisos(1)")
-    time.sleep(2.5)
+    nav.js("irA('usuarios')")
+    time.sleep(3)
+    nav.js("abrirPermisos(2)")
+    time.sleep(2)
     nav.captura("51_permisos_usuario.png")
     nav.js("cerrarModal('modal-permisos')")
 
