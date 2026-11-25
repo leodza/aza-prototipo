@@ -77,6 +77,7 @@ async function entrar(ev) {
       body: JSON.stringify({ username: $("login-usuario").value, pin: $("login-pin").value }),
     }, false);
     estado.access = j.access; estado.refresh = j.refresh; estado.usuario = j.usuario;
+    estado.inactividadMin = j.inactividad_min || 20;
     $("pantalla-login").style.display = "none";
     $("app").style.display = "flex";
     $("nombre-usuario").textContent = j.usuario.nombre;
@@ -86,16 +87,22 @@ async function entrar(ev) {
     await arrancar();
   } catch (e) {
     $("login-error").textContent = e.message;
+    if (/bloqueada/i.test(e.message)) $("login-error").textContent += " Puedes pedir el desbloqueo al administrador.";
   } finally {
-    btn.disabled = false; btn.textContent = "Ingresar";
+    btn.disabled = false; btn.textContent = "Entrar";
   }
 }
 
-async function salir() {
+async function salir(motivo) {
   try { await api("/api/auth/logout", { method: "POST" }); } catch (_) { }
   estado.access = estado.refresh = estado.usuario = null;
+  detenerInactividad();
   $("app").style.display = "none";
   $("pantalla-login").style.display = "grid";
+  $("login-error").textContent = motivo || "";
+  $("login-pin").value = "";
+  $("login-usuario").value = "";
+  $("login-usuario").focus();
 }
 
 async function arrancar() {
@@ -103,12 +110,16 @@ async function arrancar() {
   estado.motor = h.motor;
   $("chip-motor").textContent = h.motor.includes("APP-AZA") ? "motor: pipeline APP-AZA" : "motor: interno";
   $("chip-motor").className = h.motor.includes("APP-AZA") ? "chip ok" : "chip info";
-  $("estado-api").textContent = `${h.inspecciones} inspecciones · ${h.base || "base de datos"}` +
-    (h.objetos ? ` · ${h.objetos} objetos` : "");
+  // La información técnica (motor de base de datos, cantidad de objetos) no se
+  // muestra en la barra: es detalle de operación, no del trabajo diario.
+  $("estado-api").textContent = "conectado";
   const pie = $("pie-base");
   if (pie) pie.textContent = h.base || "base de datos";
   aplicarPermisos();
+  ocultarTecnico();
+  iniciarInactividad();
   await Promise.all([cargarDashboard(), cargarSelects()]);
+  if (rolActual() === "administrador") cargarConfiguracion();
   irA("dashboard");                 // siempre se vuelve al menú principal al entrar
   reloj(); setInterval(reloj, 30000);
 }
@@ -132,6 +143,16 @@ function aplicarPermisos() {
     b.classList.toggle("oculto", !permitido);
   });
   $("card-nuevo-usuario").classList.toggle("oculto", rol !== "administrador");
+  const acciones = $("acciones-recetas");
+  if (acciones) acciones.classList.toggle("oculto", rol !== "administrador");
+}
+
+/* El operador solo ve lo que necesita para operar: se ocultan los datos
+   técnicos del motor y del almacenamiento. */
+function ocultarTecnico() {
+  if (rolActual() === "operador") {
+    ["chip-motor", "pie-base"].forEach((id) => { const el = $(id); if (el) el.classList.add("oculto"); });
+  }
 }
 
 function reloj() {
@@ -142,7 +163,8 @@ function reloj() {
 
 /* ------------------------------------------------------------------ navegación */
 const TITULOS = {
-  dashboard: "Dashboard", historico: "Histórico de inspecciones", detalle: "Detalle de la inspección",
+  dashboard: "Dashboard", historico: "Histórico de inspecciones",
+  alarmas: "Alarmas de tolerancia", configuracion: "Configuración", detalle: "Detalle de la inspección",
   simulador: "Simulador de cámara", recetas: "Recetas y tolerancias",
   usuarios: "Usuarios y roles", auditoria: "Auditoría del sistema",
 };
@@ -158,6 +180,8 @@ function irA(vista) {
   if (vista === "historico") cargarHistorico(1);
   if (vista === "recetas") { cargarRecetas(); cargarMateriales(); }
   if (vista === "usuarios") cargarUsuarios();
+  if (vista === "alarmas") cargarAlarmas();
+  if (vista === "configuracion") { cargarConfiguracion(); cargarSolicitudes(); }
   if (vista === "auditoria") cargarAuditoria();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -248,6 +272,14 @@ async function cargarSelects() {
                   `(${num(r.min_tol)}° – ${num(r.max_tol)}°)</option>`).join("");
     $("f-lote").innerHTML = `<option value="">Todos</option>` +
       lotes.map((l) => `<option>${esc(l.codigo)}</option>`).join("");
+    const selOper = $("f-operador");
+    if (selOper) {
+      try {
+        const usuarios = await api("/api/usuarios");
+        selOper.innerHTML = `<option value="">Todos</option>` +
+          usuarios.map((u) => `<option value="${esc(u.username)}">${esc(u.nombre)}</option>`).join("");
+      } catch (_) { selOper.innerHTML = `<option value="">Todos</option>`; }
+    }
     $("r-mat").innerHTML = materiales.map((m) =>
       `<option value="${m.id}">${esc(m.familia)} ${esc(m.tipo)}</option>`).join("");
     const hoy = hoyLocal();
@@ -264,6 +296,7 @@ async function cargarHistorico(pagina = 1) {
   if ($("f-receta").value) q.set("receta", $("f-receta").value);
   if ($("f-lote").value) q.set("lote", $("f-lote").value);
   if ($("f-estado").value) q.set("estado", $("f-estado").value);
+  if ($("f-operador") && $("f-operador").value) q.set("operador", $("f-operador").value);
   try {
     const d = await api("/api/inspecciones?" + q);
     const criterio = d.orden === "fecha" ? "más recientes primero" : "lote → batch → fecha";
@@ -293,7 +326,11 @@ function paginaHist(delta) {
 }
 
 function limpiarFiltros() {
-  ["f-receta", "f-lote", "f-estado"].forEach((id) => $(id).value = "");
+  if (!confirm("¿Limpiar todos los filtros de la consulta?\n\nNo se borra ningún registro: " +
+               "solo se restablecen los filtros al día de hoy.")) return;
+  ["f-receta", "f-lote", "f-estado", "f-operador"].forEach((id) => {
+    const el = $(id); if (el) el.value = "";
+  });
   const hoy = hoyLocal();
   $("f-desde").value = hoy; $("f-hasta").value = hoy;
   cargarHistorico(1);
@@ -302,8 +339,12 @@ function limpiarFiltros() {
 function exportarCSV() {
   const d = estado.ultimoHist;
   if (!d || !d.items.length) { alert("No hay resultados para exportar."); return; }
-  const cab = ["id", "fecha_hora", "receta", "lote", "operador", "angulo", "estado"];
-  const filas = d.items.map((i) => [i.id, i.fecha_hora, i.receta, i.lote, i.operador, i.angulo, i.estado]
+  const cab = ["id", "fecha_hora", "receta", "receta_id", "lote", "batch", "batch_id",
+    "material", "operador", "angulo", "limite_min", "limite_max", "estado", "origen",
+    "velocidad_m_min", "desviacion_deg", "objeto"];
+  const filas = d.items.map((i) => [i.id, i.fecha_hora, i.receta, i.receta_id, i.lote,
+    i.batch, i.batch_id, i.materialidad, i.operador, i.angulo, i.limite_min, i.limite_max,
+    i.estado, i.origen, i.velocidad_m_min, i.desviacion_deg, i.imagen_clave]
     .map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","));
   const blob = new Blob(["\uFEFF" + [cab.join(","), ...filas].join("\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
@@ -370,9 +411,18 @@ async function verDetalle(id) {
 const VELOCIDAD_NOMINAL = 12.0;
 const GRADOS_POR_M_MIN = 2.8;
 
-function actualizarVelocidad() {
+function velocidadManual(valor) {
+  const v = Math.max(4, Math.min(30, Number(valor) || 12));
+  const slider = sim-velocidad;
+  if (slider) slider.value = v;
+  actualizarVelocidad('numero');
+}
+
+function actualizarVelocidad(origen) {
   const v = Number($("sim-velocidad").value);
-  $("sim-velocidad-valor").textContent = num(v);
+  const campo = $("sim-velocidad-num");
+  if (campo && origen !== "numero") campo.value = v;
+  if ($("sim-velocidad-valor")) $("sim-velocidad-valor").textContent = num(v);
   const efecto = (v - VELOCIDAD_NOMINAL) * GRADOS_POR_M_MIN;
   const signo = efecto >= 0 ? "+" : "−";
   $("sim-velocidad-ayuda").innerHTML =
@@ -596,7 +646,7 @@ async function cargarAuditoria() {
     $("tabla-auditoria").innerHTML = d.map((a) => `
       <tr><td>${fecha(a.fecha)}</td><td><span class="chip info">${esc(a.accion)}</span></td>
       <td>${esc(a.entidad)}</td><td class="mono">${a.entidad_id ?? "—"}</td>
-      <td class="muted" style="font-size:.82rem">${esc(a.detalle || "")}</td></tr>`).join("")
+      <td class="detalle-largo">${esc(a.detalle_texto || a.detalle || "")}</td></tr>`).join("")
       || `<tr><td colspan="5" class="muted">Sin eventos.</td></tr>`;
   } catch (e) {
     $("tabla-auditoria").innerHTML = `<tr><td colspan="5" class="muted">${esc(e.message)}</td></tr>`;
@@ -607,3 +657,225 @@ async function cargarAuditoria() {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && $("pantalla-login").style.display !== "none") entrar(e);
 });
+
+
+/* ==================================================================== */
+/*  Modales                                                            */
+/* ==================================================================== */
+function abrirModal(id) {
+  const m = $(id);
+  if (m) m.hidden = false;
+}
+
+function cerrarModal(id) {
+  const m = $(id);
+  if (m) m.hidden = true;
+}
+
+function cerrarModalFondo(ev, id) {
+  if (ev.target.id === id) cerrarModal(id);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.querySelectorAll(".modal-fondo:not([hidden])")
+    .forEach((m) => { m.hidden = true; });
+});
+
+/* ==================================================================== */
+/*  Olvidé mi contraseña                                               */
+/* ==================================================================== */
+function olvidarClave() {
+  $("olvido-ident").value = $("login-usuario").value.trim();
+  $("olvido-msg").textContent = "";
+  abrirModal("modal-olvido");
+  $("olvido-ident").focus();
+}
+
+async function enviarOlvido() {
+  const ident = $("olvido-ident").value.trim();
+  const msg = $("olvido-msg");
+  if (ident.length < 3) { msg.textContent = "Escribe tu usuario, correo o nombre."; return; }
+  try {
+    const r = await api("/api/auth/olvido", {
+      method: "POST", body: JSON.stringify({ identificador: ident }),
+    }, false);
+    msg.textContent = r.mensaje;
+    setTimeout(() => cerrarModal("modal-olvido"), 2200);
+  } catch (e) {
+    msg.textContent = "No se pudo enviar: " + e.message;
+  }
+}
+
+/* ==================================================================== */
+/*  Configuración (administrador)                                      */
+/* ==================================================================== */
+async function cargarConfiguracion() {
+  try {
+    const d = await api("/api/configuracion");
+    $("cfg-intentos").value = d.max_intentos.valor;
+    $("cfg-bloqueo").value = d.bloqueo_min.valor;
+    $("cfg-inactividad").value = d.inactividad_min.valor;
+    $("cfg-sesion").value = String(d.sesion_unica.valor);
+    const u = estado.usuario || {};
+    if (u.rol === "administrador") estado.inactividadMin = d.inactividad_min.valor;
+  } catch (e) {
+    $("cfg-msg").textContent = "No se pudo leer la configuración: " + e.message;
+  }
+}
+
+async function guardarConfiguracion() {
+  const msg = $("cfg-msg");
+  msg.textContent = "Guardando…";
+  try {
+    await api("/api/configuracion", {
+      method: "PUT",
+      body: JSON.stringify({
+        max_intentos: Number($("cfg-intentos").value),
+        bloqueo_min: Number($("cfg-bloqueo").value),
+        inactividad_min: Number($("cfg-inactividad").value),
+        sesion_unica: Number($("cfg-sesion").value),
+      }),
+    });
+    msg.textContent = "Cambios guardados ✓";
+    estado.inactividadMin = Number($("cfg-inactividad").value);
+    reiniciarInactividad();
+  } catch (e) {
+    msg.textContent = "✗ " + e.message;
+  }
+}
+
+async function cargarSolicitudes() {
+  const cuerpo = $("tabla-solicitudes");
+  try {
+    const d = await api("/api/solicitudes");
+    const pend = d.filter((x) => x.estado === "pendiente").length;
+    cuerpo.innerHTML = d.map((x) => `
+      <tr>
+        <td class="mono">#${x.id}</td>
+        <td class="mono">${esc(x.identificador)}</td>
+        <td>${esc(x.usuario || "—")}</td>
+        <td class="mono">${fecha(x.creada_en)}</td>
+        <td>${x.estado === "pendiente"
+              ? '<span class="chip warn">pendiente</span>'
+              : '<span class="chip ok">atendida</span>'}</td>
+        <td>${x.estado === "pendiente"
+              ? `<button class="btn sec" onclick="resolverSolicitud(${x.id})">Restablecer</button>`
+              : "—"}</td>
+      </tr>`).join("") || `<tr><td colspan="6" class="muted">Sin solicitudes registradas.</td></tr>`;
+    const sub = $("tabla-solicitudes").closest(".card").querySelector(".sub");
+    if (sub) sub.textContent = `${pend} pendiente(s) de atender`;
+  } catch (e) {
+    cuerpo.innerHTML = `<tr><td colspan="6" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function resolverSolicitud(id) {
+  const clave = prompt("Nueva contraseña para el usuario (mínimo 8 caracteres,\ncon mayúscula, minúscula y número):");
+  if (!clave) return;
+  const nota = prompt("Nota para la bitácora (opcional):") || null;
+  try {
+    await api(`/api/solicitudes/${id}/resolver`, {
+      method: "POST", body: JSON.stringify({ nueva_clave: clave, nota }),
+    });
+    await cargarSolicitudes();
+    alert("Contraseña restablecida. La cuenta quedó activa y desbloqueada.");
+  } catch (e) {
+    alert("No se pudo restablecer: " + e.message);
+  }
+}
+
+/* ==================================================================== */
+/*  Alarmas                                                            */
+/* ==================================================================== */
+const ALARMA_ETIQUETA = {
+  pendiente: "Pendiente", en_revision: "En revisión", solucionada: "Solucionada",
+};
+let alarmaAbierta = null;
+
+async function cargarAlarmas() {
+  const cuerpo = $("tabla-alarmas");
+  if (!cuerpo) return;
+  const filtro = $("f-estado-alarma") ? $("f-estado-alarma").value : "";
+  try {
+    let d = await api("/api/alarmas");
+    if (filtro) d = d.filter((a) => a.estado === filtro);
+    const pend = d.filter((a) => a.estado !== "solucionada").length;
+    $("alarmas-sub").textContent =
+      `${d.length} alarmas · ${pend} sin cerrar`;
+    cuerpo.innerHTML = d.map((a) => `
+      <tr>
+        <td class="mono">${String(a.id).padStart(3, "0")}</td>
+        <td class="mono">${fecha(a.creada_en)}</td>
+        <td>${a.severidad === "alta"
+              ? '<span class="estado rechazado">alta</span>'
+              : '<span class="estado sin_receta">media</span>'}</td>
+        <td>${esc(a.receta || "—")} <span class="muted mono">${esc(a.lote || "")}</span></td>
+        <td class="num mono">${a.angulo === null ? "—" : num(a.angulo) + "°"}</td>
+        <td><span class="alarma-estado ${a.estado}">${ALARMA_ETIQUETA[a.estado] || a.estado}</span></td>
+        <td class="detalle-largo">${esc(a.solucion || "—")}</td>
+        <td>${a.estado === "solucionada" ? "—"
+              : `<button class="btn sec" onclick="abrirAlarma(${a.id})">Revisar</button>`}</td>
+      </tr>`).join("") || `<tr><td colspan="8" class="muted">No hay alarmas con ese filtro.</td></tr>`;
+    estado.alarmas = d;
+  } catch (e) {
+    cuerpo.innerHTML = `<tr><td colspan="8" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function abrirAlarma(id) {
+  const a = (estado.alarmas || []).find((x) => x.id === id);
+  if (!a) return;
+  alarmaAbierta = id;
+  $("alarma-titulo").textContent = `Alarma #${a.id} · ${ALARMA_ETIQUETA[a.estado] || a.estado}`;
+  $("alarma-sub").textContent =
+    `${a.mensaje || ""} · receta ${a.receta || "—"} ${a.lote ? "· lote " + a.lote : ""}`;
+  $("alarma-solucion").value = a.solucion || "";
+  $("alarma-msg").textContent = "";
+  abrirModal("modal-alarma");
+}
+
+async function cambiarAlarma(nuevoEstado) {
+  if (!alarmaAbierta) return;
+  const solucion = $("alarma-solucion").value.trim();
+  const msg = $("alarma-msg");
+  msg.textContent = "Guardando…";
+  try {
+    await api(`/api/alarmas/${alarmaAbierta}`, {
+      method: "PATCH", body: JSON.stringify({ estado: nuevoEstado, solucion }),
+    });
+    cerrarModal("modal-alarma");
+    await cargarAlarmas();
+    await cargarDashboard();
+  } catch (e) {
+    msg.textContent = "✗ " + e.message;
+  }
+}
+
+/* ==================================================================== */
+/*  Cierre por inactividad                                             */
+/* ==================================================================== */
+let temporizadorInactividad = null;
+let ultimaActividad = Date.now();
+
+function reiniciarInactividad() {
+  ultimaActividad = Date.now();
+}
+
+function detenerInactividad() {
+  if (temporizadorInactividad) clearInterval(temporizadorInactividad);
+  temporizadorInactividad = null;
+}
+
+function iniciarInactividad() {
+  detenerInactividad();
+  ultimaActividad = Date.now();
+  ["click", "keydown", "mousemove", "scroll"].forEach((ev) =>
+    document.addEventListener(ev, reiniciarInactividad, { passive: true }));
+  temporizadorInactividad = setInterval(() => {
+    if (!estado.usuario) return;
+    const minutos = (Date.now() - ultimaActividad) / 60000;
+    if (minutos >= (estado.inactividadMin || 20)) {
+      salir("La sesión se cerró por inactividad. Vuelve a entrar.");
+    }
+  }, 15000);
+}

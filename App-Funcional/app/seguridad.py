@@ -100,3 +100,20 @@ def hash_refresh(claro: str) -> str:
 
 def iguales(a: str, b: str) -> bool:
     return hmac.compare_digest(a, b)
+
+def validar_clave(clave: str) -> list[str]:
+    """Devuelve los requisitos que faltan para una contrasena segura.
+
+    Se exige un minimo de ocho caracteres con mayuscula, minuscula y numero.
+    Devuelve una lista vacia cuando la clave cumple.
+    """
+    faltan = []
+    if len(clave or '') < 8:
+        faltan.append('al menos 8 caracteres')
+    if not any(c.islower() for c in clave or ''):
+        faltan.append('una minuscula')
+    if not any(c.isupper() for c in clave or ''):
+        faltan.append('una mayuscula')
+    if not any(c.isdigit() for c in clave or ''):
+        faltan.append('un numero')
+    return faltan

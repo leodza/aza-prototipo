@@ -8,6 +8,7 @@ Ejecutar:  python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 """
 from __future__ import annotations
 
+import json
 import os
 import random
 import shutil
@@ -21,11 +22,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from . import almacenamiento, db, simulador
 from .seguridad import (MAX_INTENTOS, BLOQUEO_MIN, crear_jwt, hash_pin, hash_refresh,
-                        iguales, leer_jwt, nuevo_refresh, verificar_pin)
+                        iguales, leer_jwt, nuevo_refresh, validar_clave,
+                        verificar_pin)
 
 BASE_DIR = db.BASE_DIR
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -79,11 +81,14 @@ def sembrar(s):
     s.flush()
 
     usuarios = [
-        db.Usuario(username="ldaza", nombre="Leonardo Daza", pin_hash=hash_pin("1234"),
+        db.Usuario(username="ldaza", nombre="Leonardo Daza", email="ldaza@aza.cl",
+                   pin_hash=hash_pin("1234"),
                    rol_id=roles["operador"].id),
-        db.Usuario(username="jsarabia", nombre="José Sarabia", pin_hash=hash_pin("1234"),
+        db.Usuario(username="jsarabia", nombre="José Sarabia", email="jsarabia@aza.cl",
+                   pin_hash=hash_pin("1234"),
                    rol_id=roles["supervisor"].id),
-        db.Usuario(username="dparedes", nombre="Daniel Paredes", pin_hash=hash_pin("1234"),
+        db.Usuario(username="dparedes", nombre="Daniel Paredes", email="dparedes@aza.cl",
+                   pin_hash=hash_pin("1234"),
                    rol_id=roles["administrador"].id),
         db.Usuario(username="servicio", nombre="Sistema de visión", pin_hash=hash_pin("servicio"),
                    rol_id=roles["integrador"].id),
@@ -166,6 +171,17 @@ def sembrar(s):
             origen="historico_demo", confianza="ALTA", duracion_ms=azar.randint(1500, 2600)))
     s.commit()
 
+    # alarmas de demostración para las inspecciones rechazadas del histórico
+    with db.SesionLocal() as s:
+        rechazadas = s.scalars(select(db.Inspeccion)
+                               .where(db.Inspeccion.estado == "rechazado").limit(6)).all()
+        for insp_demo in rechazadas:
+            s.add(db.Alarma(inspeccion_id=insp_demo.id, tipo="fuera_tolerancia",
+                            severidad="alta",
+                            mensaje=f"Ángulo {float(insp_demo.angulo)}° fuera del rango "
+                                    f"{float(insp_demo.limite_min)}–{float(insp_demo.limite_max)}°"))
+        s.commit()
+
 
 def _evaluar(angulo, minimo, maximo) -> str:
     if angulo is None:
@@ -232,7 +248,7 @@ def _serializar(i: db.Inspeccion) -> dict:
 # autenticación
 # --------------------------------------------------------------------------- #
 class LoginIn(BaseModel):
-    username: str
+    username: str          # usuario, correo o nombre completo
     pin: str
 
 
@@ -262,12 +278,28 @@ def _auditar(s, usuario_id, accion, entidad, entidad_id=None, ip=None,
                        entidad_id=entidad_id, ip=ip, detalle=payload or None))
 
 
+def _config(s) -> dict:
+    """Lee los parametros ajustables; si falta alguno usa el valor por defecto."""
+    valores = {c: int(v) for c, (v, _) in db.CONFIG_DEFECTOS.items()}
+    for fila in s.scalars(select(db.Configuracion)).all():
+        try:
+            valores[fila.clave] = int(fila.valor)
+        except (TypeError, ValueError):
+            pass
+    return valores
+
+
 @app.post("/api/auth/login")
 def login(datos: LoginIn):
     with db.SesionLocal() as s:
-        u = s.scalar(select(db.Usuario).where(db.Usuario.username == datos.username.strip()))
+        cfg = _config(s)
+        ident = (datos.username or "").strip().lower()
+        u = s.scalar(select(db.Usuario).where(or_(
+            func.lower(db.Usuario.username) == ident,
+            func.lower(db.Usuario.nombre) == ident,
+            func.lower(func.coalesce(db.Usuario.email, "")) == ident)))
         if not u or not u.activo:
-            raise HTTPException(401, "Usuario o PIN incorrecto")
+            raise HTTPException(401, "Usuario o contraseña incorrectos")
 
         ahora = datetime.now(timezone.utc)
         if u.bloqueado_hasta and u.bloqueado_hasta.replace(tzinfo=timezone.utc) > ahora:
@@ -277,22 +309,31 @@ def login(datos: LoginIn):
 
         if not verificar_pin(datos.pin, u.pin_hash):
             u.intentos_fallidos += 1
-            if u.intentos_fallidos >= MAX_INTENTOS:
-                u.bloqueado_hasta = ahora + timedelta(minutes=BLOQUEO_MIN)
+            if u.intentos_fallidos >= cfg["max_intentos"]:
+                u.bloqueado_hasta = ahora + timedelta(minutes=cfg["bloqueo_min"])
                 u.intentos_fallidos = 0
                 _auditar(s, u.id, "bloqueo", "usuarios", u.id,
-                         detalle=f"Bloqueo tras {MAX_INTENTOS} intentos fallidos")
+                         detalle={"intentos": cfg["max_intentos"],
+                                  "minutos": cfg["bloqueo_min"]})
             s.commit()
-            raise HTTPException(401, "Usuario o PIN incorrecto")
+            raise HTTPException(401, "Usuario o contraseña incorrectos")
 
         u.intentos_fallidos = 0
         u.bloqueado_hasta = None
+        cerradas = 0
+        if cfg.get("sesion_unica", 1):
+            for previa in s.scalars(select(db.Sesion).where(
+                    db.Sesion.usuario_id == u.id,
+                    db.Sesion.revocado.is_(False))).all():
+                previa.revocado = True
+                cerradas += 1
         claro, hashed, expira = nuevo_refresh()
         sesion = db.Sesion(usuario_id=u.id, refresh_hash=hashed, expira_en=expira)
         s.add(sesion)
         s.flush()
         _auditar(s, u.id, "login", "usuarios", u.id,
-                   detalle={"usuario": u.username, "rol": u.rol.nombre})
+                   detalle={"usuario": u.username, "rol": u.rol.nombre,
+                            "sesiones_previas_cerradas": cerradas})
         s.commit()
 
         token = crear_jwt({"sub": u.username, "rol": u.rol.nombre, "sid": sesion.id,
@@ -413,6 +454,7 @@ def dashboard(usuario: dict = Depends(requiere("operador", "supervisor", "admini
 @app.get("/api/inspecciones")
 def listar(desde: str | None = None, hasta: str | None = None, receta: str | None = None,
            lote: str | None = None, estado: str | None = None,
+           operador: str | None = None,
            orden: str = "lote",
            pagina: int = Query(1, ge=1), tamano: int = Query(20, ge=1, le=200),
            usuario: dict = Depends(requiere("operador", "supervisor", "administrador"))):
@@ -432,6 +474,9 @@ def listar(desde: str | None = None, hasta: str | None = None, receta: str | Non
             q = q.where(db.Lote.codigo == lote)
         if estado:
             q = q.where(db.Inspeccion.estado == estado)
+        if operador:
+            q = q.join(db.Usuario, db.Inspeccion.operador_id == db.Usuario.id).where(
+                or_(db.Usuario.username == operador, db.Usuario.nombre == operador))
         if usuario.get("rol") == "operador":
             ini, fin = _rango()
             q = q.where(db.Inspeccion.fecha_hora >= ini, db.Inspeccion.fecha_hora < fin)
@@ -593,19 +638,196 @@ def lotes(usuario: dict = Depends(requiere("operador", "supervisor", "administra
                  "batches": por_lote.get(l.id, [])} for l in filas]
 
 
+@app.get("/api/configuracion")
+def leer_configuracion(usuario: dict = Depends(requiere("administrador"))):
+    with db.SesionLocal() as s:
+        valores = _config(s)
+        descripciones = {c: d for c, (_v, d) in db.CONFIG_DEFECTOS.items()}
+        return {c: {"valor": valores[c], "descripcion": descripciones[c]} for c in valores}
+
+
+class ConfigIn(BaseModel):
+    max_intentos: int = Field(ge=3, le=20)
+    bloqueo_min: int = Field(ge=1, le=1440)
+    inactividad_min: int = Field(ge=1, le=240)
+    sesion_unica: int = Field(ge=0, le=1)
+
+
+@app.put("/api/configuracion")
+def guardar_configuracion(datos: ConfigIn, usuario: dict = Depends(requiere("administrador"))):
+    with db.SesionLocal() as s:
+        antes = _config(s)
+        for clave, valor in datos.model_dump().items():
+            fila = s.get(db.Configuracion, clave)
+            if fila:
+                fila.valor = str(valor)
+            else:
+                s.add(db.Configuracion(clave=clave, valor=str(valor)))
+        _auditar(s, usuario["uid"], "actualizar", "configuracion", None,
+                 antes=antes, despues=datos.model_dump())
+        s.commit()
+        return {"ok": True, "configuracion": _config(s)}
+
+
+class OlvidoIn(BaseModel):
+    identificador: str = Field(min_length=3, max_length=120)
+
+
+@app.post("/api/auth/olvido")
+def olvido(datos: OlvidoIn):
+    """Registra una solicitud de restablecimiento para que la atienda el administrador."""
+    with db.SesionLocal() as s:
+        ident = datos.identificador.strip().lower()
+        u = s.scalar(select(db.Usuario).where(or_(
+            func.lower(db.Usuario.username) == ident,
+            func.lower(db.Usuario.nombre) == ident,
+            func.lower(func.coalesce(db.Usuario.email, "")) == ident)))
+        s.add(db.SolicitudClave(usuario_id=u.id if u else None, identificador=ident))
+        s.commit()
+    return {"ok": True,
+            "mensaje": "Solicitud enviada. El administrador debe restablecer la contraseña."}
+
+
+def _detalle_legible(detalle) -> str:
+    """Convierte el JSON de la bitacora en una línea que se pueda leer."""
+    if not detalle:
+        return ""
+    if isinstance(detalle, str):
+        return detalle
+    partes = []
+    if detalle.get("mensaje"):
+        partes.append(str(detalle["mensaje"]))
+    if detalle.get("antes") is not None:
+        partes.append("antes: " + json.dumps(detalle["antes"], ensure_ascii=False))
+    if detalle.get("despues") is not None:
+        partes.append("después: " + json.dumps(detalle["despues"], ensure_ascii=False))
+    for clave, valor in detalle.items():
+        if clave not in ("mensaje", "antes", "despues"):
+            partes.append(f"{clave}: {valor}")
+    return " · ".join(partes)
+
+
+@app.get("/api/solicitudes")
+def solicitudes(usuario: dict = Depends(requiere("administrador"))):
+    with db.SesionLocal() as s:
+        filas = s.scalars(select(db.SolicitudClave)
+                          .order_by(db.SolicitudClave.creada_en.desc()).limit(50)).all()
+        return [{"id": f.id, "identificador": f.identificador, "estado": f.estado,
+                 "creada_en": _iso(f.creada_en), "atendida_en": _iso(f.atendida_en),
+                 "usuario": f.usuario.nombre if f.usuario else None,
+                 "username": f.usuario.username if f.usuario else None,
+                 "nota": f.nota} for f in filas]
+
+
+class ResolverIn(BaseModel):
+    nueva_clave: str = Field(min_length=8, max_length=64)
+    nota: str | None = None
+
+
+@app.post("/api/solicitudes/{id}/resolver")
+def resolver_solicitud(id: int, datos: ResolverIn,
+                       usuario: dict = Depends(requiere("administrador"))):
+    faltan = validar_clave(datos.nueva_clave)
+    if faltan:
+        raise HTTPException(422, "La contraseña debe tener " + ", ".join(faltan))
+    with db.SesionLocal() as s:
+        sol = s.get(db.SolicitudClave, id)
+        if not sol:
+            raise HTTPException(404, "Solicitud no encontrada")
+        if sol.estado != "pendiente":
+            raise HTTPException(409, "Esa solicitud ya fue atendida")
+        if not sol.usuario_id:
+            raise HTTPException(422, "La solicitud no identifica a un usuario existente")
+        u = s.get(db.Usuario, sol.usuario_id)
+        u.pin_hash = hash_pin(datos.nueva_clave)
+        u.intentos_fallidos = 0
+        u.bloqueado_hasta = None
+        u.activo = True
+        sol.estado = "atendida"
+        sol.nota = datos.nota
+        sol.atendida_en = datetime.now(timezone.utc)
+        _auditar(s, usuario["uid"], "reset", "usuarios", u.id,
+                 detalle={"solicitud": sol.id, "usuario": u.username})
+        s.commit()
+        return {"ok": True, "usuario": u.username}
+
+
+# --------------------------------------------------------------------------- #
+# alarmas con flujo de revisión
+# --------------------------------------------------------------------------- #
+@app.get("/api/alarmas")
+def alarmas(usuario: dict = Depends(requiere("operador", "supervisor", "administrador"))):
+    with db.SesionLocal() as s:
+        filas = s.scalars(select(db.Alarma)
+                          .order_by(db.Alarma.creada_en.desc()).limit(120)).all()
+        salida = []
+        for a in filas:
+            insp = s.get(db.Inspeccion, a.inspeccion_id) if a.inspeccion_id else None
+            salida.append({
+                "id": a.id, "tipo": a.tipo, "severidad": a.severidad,
+                "mensaje": a.mensaje, "estado": a.estado, "solucion": a.solucion,
+                "creada_en": _iso(a.creada_en), "resuelto_en": _iso(a.resuelto_en),
+                "inspeccion_id": a.inspeccion_id,
+                "angulo": float(insp.angulo) if insp and insp.angulo is not None else None,
+                "receta": insp.receta.nombre if insp and insp.receta else None,
+                "lote": insp.lote.codigo if insp and insp.lote else None,
+                "batch": insp.batch.numero if insp and insp.batch else None,
+                "operador": insp.operador.nombre if insp and insp.operador else None,
+            })
+        return salida
+
+
+class AlarmaIn(BaseModel):
+    estado: str
+    solucion: str | None = None
+
+
+@app.patch("/api/alarmas/{id}")
+def revisar_alarma(id: int, datos: AlarmaIn,
+                   usuario: dict = Depends(requiere("supervisor", "administrador"))):
+    if datos.estado not in ("pendiente", "en_revision", "solucionada"):
+        raise HTTPException(422, "Estado inválido: pendiente, en_revision o solucionada")
+    if datos.estado == "solucionada" and not (datos.solucion or "").strip():
+        raise HTTPException(422, "Para dar por solucionada una alarma indique la solución")
+    with db.SesionLocal() as s:
+        a = s.get(db.Alarma, id)
+        if not a:
+            raise HTTPException(404, "Alarma no encontrada")
+        antes = {"estado": a.estado}
+        a.estado = datos.estado
+        if datos.solucion is not None:
+            a.solucion = datos.solucion.strip() or None
+        if datos.estado == "solucionada":
+            a.resuelto_por = usuario["uid"]
+            a.resuelto_en = datetime.now(timezone.utc)
+            a.notificada = True
+        _auditar(s, usuario["uid"], "actualizar", "alarmas", a.id,
+                 antes=antes, despues={"estado": a.estado, "solucion": a.solucion})
+        s.commit()
+        return {"id": a.id, "estado": a.estado}
+
+
 @app.get("/api/usuarios")
 def usuarios(usuario: dict = Depends(requiere("administrador"))):
     with db.SesionLocal() as s:
         filas = s.scalars(select(db.Usuario).order_by(db.Usuario.username)).all()
-        return [{"id": u.id, "username": u.username, "nombre": u.nombre,
-                 "rol": u.rol.nombre, "activo": u.activo} for u in filas]
+        ahora_utc = datetime.now(timezone.utc)
+        salida = []
+        for u in filas:
+            bloqueado = bool(u.bloqueado_hasta and
+                             u.bloqueado_hasta.replace(tzinfo=timezone.utc) > ahora_utc)
+            salida.append({"id": u.id, "username": u.username, "nombre": u.nombre,
+                           "email": u.email, "rol": u.rol.nombre, "activo": u.activo,
+                           "bloqueado": bloqueado})
+        return salida
 
 
 class UsuarioIn(BaseModel):
     username: str = Field(min_length=3, max_length=40)
     nombre: str = Field(min_length=3, max_length=80)
     rol: str
-    pin: str = Field(min_length=4, max_length=32)
+    pin: str = Field(min_length=8, max_length=64)
+    email: str | None = None
 
 
 def _admins_activos(s, excluir: int | None = None) -> int:
@@ -625,8 +847,14 @@ def crear_usuario(datos: UsuarioIn, usuario: dict = Depends(requiere("administra
         nombre_usuario = datos.username.strip().lower()
         if s.scalar(select(db.Usuario).where(db.Usuario.username == nombre_usuario)):
             raise HTTPException(409, "Ese nombre de usuario ya existe")
+        faltan = validar_clave(datos.pin)
+        if faltan:
+            raise HTTPException(422, "La contraseña debe tener " + ", ".join(faltan))
+        email = (datos.email or "").strip().lower() or None
+        if email and s.scalar(select(db.Usuario).where(db.Usuario.email == email)):
+            raise HTTPException(409, "Ese correo ya está registrado")
         u = db.Usuario(username=nombre_usuario, nombre=datos.nombre.strip(),
-                       pin_hash=hash_pin(datos.pin), rol_id=rol.id)
+                       email=email, pin_hash=hash_pin(datos.pin), rol_id=rol.id)
         s.add(u)
         s.flush()
         _auditar(s, usuario["uid"], "crear", "usuarios", u.id,
@@ -636,10 +864,19 @@ def crear_usuario(datos: UsuarioIn, usuario: dict = Depends(requiere("administra
         return {"id": u.id, "username": u.username, "rol": rol.nombre}
 
 
+class ActivoIn(BaseModel):
+    activo: bool
+
+
 @app.patch("/api/usuarios/{id}")
-def activar_usuario(id: int, activo: bool,
+def activar_usuario(id: int, datos: ActivoIn | None = None,
+                    activo: bool | None = None,
                     usuario: dict = Depends(requiere("administrador"))):
     with db.SesionLocal() as s:
+        valor = datos.activo if datos is not None else activo
+        if valor is None:
+            raise HTTPException(422, "Indique si la cuenta debe quedar activa")
+        activo = valor
         u = s.get(db.Usuario, id)
         if not u:
             raise HTTPException(404, "Usuario no encontrado")
@@ -689,7 +926,8 @@ def auditoria(usuario: dict = Depends(requiere("supervisor", "administrador"))):
         filas = s.scalars(select(db.Auditoria).order_by(db.Auditoria.fecha.desc()).limit(50)).all()
         return [{"fecha": _iso(a.fecha), "accion": a.accion, "entidad": a.entidad,
                  "entidad_id": a.entidad_id, "usuario_id": a.usuario_id,
-                 "detalle": a.detalle} for a in filas]
+                 "detalle": a.detalle,
+                 "detalle_texto": _detalle_legible(a.detalle)} for a in filas]
 
 
 # --------------------------------------------------------------------------- #

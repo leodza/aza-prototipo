@@ -318,3 +318,118 @@ def test_modo_invalido(cliente):
     cab = {"Authorization": "Bearer " + d["access"]}
     r = cliente.post("/api/simular?modo=inventado", headers=cab)
     assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# funciones agregadas en la revisión de noviembre
+# --------------------------------------------------------------------------- #
+def test_login_por_correo_y_por_nombre(cliente):
+    for ident in ("jsarabia@aza.cl", "José Sarabia"):
+        r = cliente.post("/api/auth/login", json={"username": ident, "pin": "1234"})
+        assert r.status_code == 200, f"falló con {ident}: {r.text}"
+
+
+def test_reactivar_usuario_por_cuerpo(cliente):
+    """Regresión: el PATCH recibía «activo» por URL y la interfaz lo manda en el cuerpo."""
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.post("/api/usuarios", headers=cab,
+                     json={"username": "temporal", "nombre": "Cuenta Temporal",
+                           "rol": "operador", "pin": "AzaLab2026", "email": "temp@aza.cl"})
+    assert r.status_code == 201
+    uid = r.json()["id"]
+    assert cliente.patch(f"/api/usuarios/{uid}", headers=cab,
+                         json={"activo": False}).status_code == 200
+    assert cliente.patch(f"/api/usuarios/{uid}", headers=cab,
+                         json={"activo": True}).status_code == 200
+    usuarios = cliente.get("/api/usuarios", headers=cab).json()
+    assert next(u for u in usuarios if u["id"] == uid)["activo"] is True
+
+
+def test_politica_de_contrasena(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    for i, debil in enumerate(("1234", "sololetras", "SINNUMEROS", "Corta1")):
+        r = cliente.post("/api/usuarios", headers=cab,
+                         json={"username": f"debil{i}", "nombre": "Prueba Clave",
+                               "rol": "operador", "pin": debil})
+        assert r.status_code == 422, f"{debil} debió rechazarse"
+    r = cliente.post("/api/usuarios", headers=cab,
+                     json={"username": "claveok", "nombre": "Clave Correcta",
+                           "rol": "operador", "pin": "AzaLab2026"})
+    assert r.status_code == 201
+
+
+def test_configuracion_editable(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    antes = cliente.get("/api/configuracion", headers=cab).json()
+    assert antes["max_intentos"]["valor"] >= 3
+    r = cliente.put("/api/configuracion", headers=cab,
+                    json={"max_intentos": 6, "bloqueo_min": 20,
+                          "inactividad_min": 30, "sesion_unica": 1})
+    assert r.status_code == 200
+    despues = cliente.get("/api/configuracion", headers=cab).json()
+    assert despues["max_intentos"]["valor"] == 6
+    assert despues["bloqueo_min"]["valor"] == 20
+
+
+def test_configuracion_solo_admin(cliente):
+    d = _login(cliente, "ldaza")
+    r = cliente.get("/api/configuracion", headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 403
+
+
+def test_solicitud_de_contrasena(cliente):
+    r = cliente.post("/api/auth/olvido", json={"identificador": "ldaza@aza.cl"})
+    assert r.status_code == 200
+    assert "solicitud" in r.json()["mensaje"].lower()
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    lista = cliente.get("/api/solicitudes", headers=cab).json()
+    pendiente = next(x for x in lista if x["estado"] == "pendiente")
+    r = cliente.post(f"/api/solicitudes/{pendiente['id']}/resolver", headers=cab,
+                     json={"nueva_clave": "NuevaClave2026", "nota": "Prueba"})
+    assert r.status_code == 200
+    assert cliente.post("/api/auth/login",
+                        json={"username": "ldaza", "pin": "NuevaClave2026"}).status_code == 200
+
+
+def test_alarmas_y_flujo_de_revision(cliente):
+    d = _login(cliente, "jsarabia")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.post("/api/simular?receta_id=1&modo=fuera", headers=cab)
+    assert r.status_code == 200
+    alarmas = cliente.get("/api/alarmas", headers=cab).json()
+    assert alarmas, "debería existir al menos una alarma"
+    alarma = next(a for a in alarmas if a["estado"] != "solucionada")
+    assert cliente.patch(f"/api/alarmas/{alarma['id']}", headers=cab,
+                         json={"estado": "en_revision"}).status_code == 200
+    r = cliente.patch(f"/api/alarmas/{alarma['id']}", headers=cab,
+                      json={"estado": "solucionada"})
+    assert r.status_code == 422, "solucionar sin detalle debe fallar"
+    r = cliente.patch(f"/api/alarmas/{alarma['id']}", headers=cab,
+                      json={"estado": "solucionada", "solucion": "Se recalibró el cabezal"})
+    assert r.status_code == 200
+    resuelta = next(a for a in cliente.get("/api/alarmas", headers=cab).json()
+                    if a["id"] == alarma["id"])
+    assert resuelta["estado"] == "solucionada"
+    assert "recalibró" in resuelta["solucion"]
+
+
+def test_filtro_por_operador(cliente):
+    d = _login(cliente, "jsarabia")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    todos = cliente.get("/api/inspecciones?tamano=200", headers=cab).json()["total"]
+    filtrado = cliente.get("/api/inspecciones?operador=ldaza&tamano=200", headers=cab).json()
+    assert filtrado["total"] <= todos
+    assert all(i["operador"] == "Leonardo Daza" for i in filtrado["items"])
+
+
+def test_auditoria_con_detalle_legible(cliente):
+    d = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    eventos = cliente.get("/api/auditoria", headers=cab).json()
+    con_detalle = [e for e in eventos if e.get("detalle_texto")]
+    assert con_detalle, "la bitácora debe exponer el detalle en texto"
+    assert "[object Object]" not in " ".join(e["detalle_texto"] for e in con_detalle)

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String,
-    Text, UniqueConstraint, create_engine,
+    Text, UniqueConstraint, create_engine, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -55,6 +55,7 @@ class Usuario(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     nombre: Mapped[str] = mapped_column(String(80), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(120), index=True)
     pin_hash: Mapped[str] = mapped_column(Text, nullable=False)
     rol_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -179,6 +180,33 @@ class Alarma(Base):
     mensaje: Mapped[str | None] = mapped_column(Text)
     notificada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     creada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+    # Flujo de revisión: pendiente -> en_revision -> solucionada
+    estado: Mapped[str] = mapped_column(String(15), default="pendiente", nullable=False)
+    solucion: Mapped[str | None] = mapped_column(Text)
+    resuelto_por: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    resuelto_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Configuracion(Base):
+    """Parámetros que el administrador puede ajustar desde la interfaz."""
+    __tablename__ = "configuracion"
+    clave: Mapped[str] = mapped_column(String(40), primary_key=True)
+    valor: Mapped[str] = mapped_column(String(120), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(String(160))
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+
+
+class SolicitudClave(Base):
+    """Pedido de restablecimiento de contraseña que atiende el administrador."""
+    __tablename__ = "solicitudes_clave"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    identificador: Mapped[str] = mapped_column(String(120), nullable=False)
+    estado: Mapped[str] = mapped_column(String(12), default="pendiente", nullable=False)
+    nota: Mapped[str | None] = mapped_column(Text)
+    creada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
+    atendida_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    usuario: Mapped[Usuario | None] = relationship()
 
 
 class Auditoria(Base):
@@ -193,5 +221,51 @@ class Auditoria(Base):
     detalle: Mapped[dict | None] = mapped_column(DETALLE_JSON)
 
 
+CONFIG_DEFECTOS = {
+    "max_intentos": ("5", "Intentos fallidos antes de bloquear la cuenta"),
+    "bloqueo_min": ("15", "Minutos que dura el bloqueo de la cuenta"),
+    "inactividad_min": ("20", "Minutos de inactividad antes de cerrar la sesión"),
+    "sesion_unica": ("1", "1 = una sola sesión activa por usuario"),
+}
+
+
+def _columnas(s, tabla: str) -> set[str]:
+    """Devuelve las columnas reales de una tabla ya creada."""
+    if s.bind.dialect.name == "sqlite":
+        return {f[1] for f in s.execute(text(f"PRAGMA table_info({tabla})"))}
+    filas = s.execute(text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = :t"), {"t": tabla})
+    return {f[0] for f in filas}
+
+
+def migrar_columnas() -> list[str]:
+    """Agrega las columnas nuevas a bases ya existentes (create_all no lo hace)."""
+    nuevas = {
+        "usuarios": {"email": "VARCHAR(120)"},
+        "alarmas": {"estado": "VARCHAR(15) DEFAULT 'pendiente'",
+                    "solucion": "TEXT",
+                    "resuelto_por": "INTEGER",
+                    "resuelto_en": "TIMESTAMP"},
+    }
+    aplicadas = []
+    with SesionLocal() as s:
+        for tabla, columnas in nuevas.items():
+            existentes = _columnas(s, tabla)
+            if not existentes:
+                continue
+            for nombre, tipo in columnas.items():
+                if nombre not in existentes:
+                    s.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}"))
+                    aplicadas.append(f"{tabla}.{nombre}")
+        s.commit()
+    return aplicadas
+
+
 def crear_tablas() -> None:
     Base.metadata.create_all(engine)
+    migrar_columnas()
+    with SesionLocal() as s:
+        for clave, (valor, desc) in CONFIG_DEFECTOS.items():
+            if not s.get(Configuracion, clave):
+                s.add(Configuracion(clave=clave, valor=valor, descripcion=desc))
+        s.commit()
