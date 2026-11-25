@@ -467,6 +467,20 @@
           <tbody id="tabla-estadisticas"></tbody>
         </table>
       </div>
+
+      <div class="card">
+        <h3>Comparador por pares</h3>
+        <div class="sub">Elige dos operadores y compara volumen, calidad, recetas usadas y consistencia.</div>
+        <div class="filtros" style="grid-template-columns:1fr 1fr auto">
+          <div><label for="cmp-operador-a">Operador A</label><select id="cmp-operador-a"></select></div>
+          <div><label for="cmp-operador-b">Operador B</label><select id="cmp-operador-b"></select></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="compararOperadores()">Comparar</button>
+            <button class="btn sec" onclick="descargarInformeComparacion()">Informe</button>
+          </div>
+        </div>
+        <div id="cmp-operadores-resultado"></div>
+      </div>
     </section>
 
     <!-- ---------------- RESPALDOS ---------------- -->
@@ -559,6 +573,19 @@
       <button class="btn" onclick="enviarOlvido()">Enviar solicitud</button>
     </div>
     <div class="muted" id="olvido-msg" style="font-size:.82rem;margin-top:8px"></div>
+  </div>
+</div>
+
+<div class="modal-fondo" id="modal-permisos" hidden onclick="cerrarModalFondo(event, 'modal-permisos')">
+  <div class="modal-caja">
+    <h2 id="perm-titulo">Permisos del usuario</h2>
+    <div class="sub">Además de lo que ya permite su rol, puedes darle accesos puntuales.</div>
+    <div id="perm-lista" class="perm-lista"></div>
+    <div class="modal-acciones">
+      <button class="btn sec" onclick="cerrarModal('modal-permisos')">Cancelar</button>
+      <button class="btn" onclick="guardarPermisos()">Guardar permisos</button>
+    </div>
+    <div class="muted" id="perm-msg" style="font-size:.82rem;margin-top:8px"></div>
   </div>
 </div>
 

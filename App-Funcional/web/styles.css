@@ -770,3 +770,16 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .leyenda-graf i.lg-aprob { background: var(--verde); }
 .leyenda-graf i.lg-rech { background: var(--rojo); }
 .leyenda-graf i.lg-sin { background: var(--ambar); }
+.lista-simple { margin: 8px 0 0; padding-left: 18px; font-size: .84rem; color: var(--texto-2); }
+.lista-simple li { margin-bottom: 4px; }
+.lista-simple b { color: var(--texto); }
+td.gana { color: var(--lima); font-weight: 700; }
+.perm-lista { display: grid; gap: 8px; max-height: 320px; overflow-y: auto; }
+.perm-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border: 1px solid var(--borde);
+  border-radius: var(--radio-sm); background: var(--sup-2); cursor: pointer;
+}
+.perm-item:hover { border-color: var(--lima); }
+.perm-item input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--lima); }
+.perm-item small { font-size: .76rem; }

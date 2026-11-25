@@ -339,12 +339,14 @@ def login(datos: LoginIn):
                             "sesiones_previas_cerradas": cerradas})
         s.commit()
 
+        permisos = _permisos_de(u)
         token = crear_jwt({"sub": u.username, "rol": u.rol.nombre, "sid": sesion.id,
-                           "uid": u.id})
+                           "uid": u.id, "perm": permisos})
         return {
             "access": token,
             "refresh": claro,
-            "usuario": {"username": u.username, "nombre": u.nombre, "rol": u.rol.nombre},
+            "usuario": {"username": u.username, "nombre": u.nombre, "rol": u.rol.nombre,
+                        "permisos": permisos},
             "expira_en_seg": 900,
         }
 
@@ -382,8 +384,10 @@ def usuario_actual(authorization: str = Header(default="")) -> dict:
     return payload
 
 
-def requiere(*roles: str):
+def requiere(*roles: str, permiso: str | None = None):
     def _dep(usuario: dict = Depends(usuario_actual)) -> dict:
+        if permiso and permiso in (usuario.get("perm") or []):
+            return usuario
         if roles and usuario.get("rol") not in roles:
             raise HTTPException(403, f"El rol «{usuario.get('rol')}» no tiene permiso para esta acción")
         return usuario
@@ -460,7 +464,7 @@ def listar(desde: str | None = None, hasta: str | None = None, receta: str | Non
            operador: str | None = None,
            orden: str = "lote",
            pagina: int = Query(1, ge=1), tamano: int = Query(20, ge=1, le=200),
-           usuario: dict = Depends(requiere("operador", "supervisor", "administrador"))):
+           usuario: dict = Depends(requiere("operador", "supervisor", "administrador", permiso="ver_historico"))):
     with db.SesionLocal() as s:
         q = select(db.Inspeccion).join(db.Receta, db.Inspeccion.receta_id == db.Receta.id,
                                        isouter=True).join(db.Lote, db.Inspeccion.lote_id == db.Lote.id,
@@ -565,7 +569,7 @@ class RecetaIn(BaseModel):
 
 
 @app.post("/api/recetas", status_code=201)
-def crear_receta(datos: RecetaIn, usuario: dict = Depends(requiere("administrador"))):
+def crear_receta(datos: RecetaIn, usuario: dict = Depends(requiere("administrador", permiso="gestionar_recetas"))):
     if datos.min_tol >= datos.max_tol:
         raise HTTPException(422, "El límite mínimo debe ser menor que el máximo")
     with db.SesionLocal() as s:
@@ -612,7 +616,7 @@ def materiales(usuario: dict = Depends(requiere("operador", "supervisor", "admin
 
 
 @app.post("/api/materiales", status_code=201)
-def crear_material(datos: MaterialIn, usuario: dict = Depends(requiere("administrador"))):
+def crear_material(datos: MaterialIn, usuario: dict = Depends(requiere("administrador", permiso="gestionar_recetas"))):
     with db.SesionLocal() as s:
         familia, tipo = datos.familia.strip().title(), datos.tipo.strip()
         if s.scalar(select(db.Material).where(db.Material.familia == familia,
@@ -642,7 +646,7 @@ def lotes(usuario: dict = Depends(requiere("operador", "supervisor", "administra
 
 
 @app.get("/api/configuracion")
-def leer_configuracion(usuario: dict = Depends(requiere("administrador"))):
+def leer_configuracion(usuario: dict = Depends(requiere("administrador", permiso="gestionar_configuracion"))):
     with db.SesionLocal() as s:
         valores = _config(s)
         descripciones = {c: d for c, (_v, d) in db.CONFIG_DEFECTOS.items()}
@@ -659,7 +663,7 @@ class ConfigIn(BaseModel):
 
 
 @app.put("/api/configuracion")
-def guardar_configuracion(datos: ConfigIn, usuario: dict = Depends(requiere("administrador"))):
+def guardar_configuracion(datos: ConfigIn, usuario: dict = Depends(requiere("administrador", permiso="gestionar_configuracion"))):
     with db.SesionLocal() as s:
         antes = _config(s)
         for clave, valor in datos.model_dump().items():
@@ -739,7 +743,7 @@ def _respaldo_automatico():
 
 
 @app.get("/api/respaldos")
-def listar_respaldos(usuario: dict = Depends(requiere("administrador"))):
+def listar_respaldos(usuario: dict = Depends(requiere("administrador", permiso="gestionar_respaldos"))):
     with db.SesionLocal() as s:
         cfg = _config(s)
     return {"respaldos": respaldos.listar(),
@@ -748,7 +752,7 @@ def listar_respaldos(usuario: dict = Depends(requiere("administrador"))):
 
 
 @app.post("/api/respaldos", status_code=201)
-def crear_respaldo(usuario: dict = Depends(requiere("administrador"))):
+def crear_respaldo(usuario: dict = Depends(requiere("administrador", permiso="gestionar_respaldos"))):
     meta = respaldos.generar(f"manual-{usuario.get('sub') or usuario.get('uid')}")
     with db.SesionLocal() as s:
         _auditar(s, usuario["uid"], "respaldo", "sistema", None,
@@ -762,7 +766,7 @@ class RestaurarIn(BaseModel):
 
 
 @app.post("/api/respaldos/restaurar")
-def restaurar_respaldo(datos: RestaurarIn, usuario: dict = Depends(requiere("administrador"))):
+def restaurar_respaldo(datos: RestaurarIn, usuario: dict = Depends(requiere("administrador", permiso="gestionar_respaldos"))):
     try:
         contenido = respaldos.leer(datos.archivo)
         insertados = respaldos.restaurar(contenido)
@@ -783,7 +787,7 @@ class CompararIn(BaseModel):
 
 
 @app.post("/api/respaldos/comparar")
-def comparar_respaldos(datos: CompararIn, usuario: dict = Depends(requiere("administrador"))):
+def comparar_respaldos(datos: CompararIn, usuario: dict = Depends(requiere("administrador", permiso="gestionar_respaldos"))):
     try:
         return respaldos.comparar(datos.a, datos.b)
     except FileNotFoundError:
@@ -791,7 +795,7 @@ def comparar_respaldos(datos: CompararIn, usuario: dict = Depends(requiere("admi
 
 
 @app.get("/api/respaldos/{archivo}")
-def descargar_respaldo(archivo: str, usuario: dict = Depends(requiere("administrador"))):
+def descargar_respaldo(archivo: str, usuario: dict = Depends(requiere("administrador", permiso="gestionar_respaldos"))):
     ruta = respaldos.ruta_de(archivo)
     if not os.path.exists(ruta):
         raise HTTPException(404, "No existe ese respaldo")
@@ -803,7 +807,7 @@ def descargar_respaldo(archivo: str, usuario: dict = Depends(requiere("administr
 # --------------------------------------------------------------------------- #
 @app.get("/api/estadisticas/operadores")
 def estadisticas_operadores(desde: str | None = None, hasta: str | None = None,
-                            usuario: dict = Depends(requiere("supervisor", "administrador"))):
+                            usuario: dict = Depends(requiere("supervisor", "administrador", permiso="ver_estadisticas"))):
     with db.SesionLocal() as s:
         aprobadas = func.sum(case((db.Inspeccion.estado == "aprobado", 1), else_=0))
         rechazadas = func.sum(case((db.Inspeccion.estado == "rechazado", 1), else_=0))
@@ -838,6 +842,139 @@ def estadisticas_operadores(desde: str | None = None, hasta: str | None = None,
         })
     salida.sort(key=lambda x: (-x["aprobacion_pct"], -x["total"]))
     return salida
+
+
+@app.get("/api/permisos")
+def catalogo_permisos(usuario: dict = Depends(requiere("administrador"))):
+    return [{"clave": k, "descripcion": v} for k, v in CATALOGO_PERMISOS.items()]
+
+
+class PermisosIn(BaseModel):
+    permisos: list[str] = []
+
+
+@app.put("/api/usuarios/{id}/permisos")
+def guardar_permisos(id: int, datos: PermisosIn,
+                     usuario: dict = Depends(requiere("administrador", permiso="gestionar_usuarios"))):
+    with db.SesionLocal() as s:
+        u = s.get(db.Usuario, id)
+        if not u:
+            raise HTTPException(404, "Usuario no encontrado")
+        validos = [p for p in datos.permisos if p in CATALOGO_PERMISOS]
+        antes = _permisos_de(u)
+        u.permisos = json.dumps(sorted(set(validos)))
+        _auditar(s, usuario["uid"], "actualizar", "usuarios", u.id,
+                 antes={"permisos": antes}, despues={"permisos": validos})
+        s.commit()
+        return {"id": u.id, "permisos": validos}
+
+
+CATALOGO_PERMISOS = {
+    "simular": "Disparar inspecciones en el simulador",
+    "ver_historico": "Consultar el histórico completo",
+    "ver_auditoria": "Ver la bitácora de auditoría",
+    "ver_estadisticas": "Ver estadísticas y comparar operadores",
+    "editar_alarmas": "Revisar y cerrar alarmas",
+    "gestionar_recetas": "Crear recetas y materiales",
+    "gestionar_usuarios": "Crear, editar y dar de baja usuarios",
+    "gestionar_respaldos": "Crear, restaurar y comparar respaldos",
+    "gestionar_configuracion": "Cambiar los parámetros del sistema",
+}
+
+
+def _permisos_de(u) -> list[str]:
+    try:
+        return [p for p in json.loads(u.permisos or "[]") if p in CATALOGO_PERMISOS]
+    except Exception:                    # noqa: BLE001
+        return []
+
+
+@app.get("/api/estadisticas/comparar")
+def comparar_operadores(a: str, b: str, desde: str | None = None, hasta: str | None = None,
+                        usuario: dict = Depends(requiere("supervisor", "administrador",
+                                                         permiso="ver_estadisticas"))):
+    """Compara dos operadores: volumen, calidad, recetas usadas y consistencia."""
+    def perfil(s, username: str) -> dict:
+        u = s.scalar(select(db.Usuario).where(db.Usuario.username == username))
+        if not u:
+            raise HTTPException(404, f"No existe el operador {username}")
+        q = (select(func.count(db.Inspeccion.id),
+                    func.sum(case((db.Inspeccion.estado == "aprobado", 1), else_=0)),
+                    func.sum(case((db.Inspeccion.estado == "rechazado", 1), else_=0)),
+                    func.sum(case((db.Inspeccion.estado == "sin_receta", 1), else_=0)),
+                    func.avg(db.Inspeccion.angulo), func.min(db.Inspeccion.angulo),
+                    func.max(db.Inspeccion.angulo), func.avg(db.Inspeccion.duracion_ms))
+             .where(db.Inspeccion.operador_id == u.id))
+        if desde:
+            q = q.where(db.Inspeccion.fecha_hora >= _a_utc_naive(datetime.fromisoformat(desde)))
+        if hasta:
+            q = q.where(db.Inspeccion.fecha_hora
+                        < _a_utc_naive(datetime.fromisoformat(hasta) + timedelta(days=1)))
+        total, aprob, rech, sin, ang, amin, amax, dur = s.execute(q).one()
+
+        qr = (select(db.Receta.nombre, func.count(db.Inspeccion.id),
+                     func.sum(case((db.Inspeccion.estado == "aprobado", 1), else_=0)))
+              .join(db.Inspeccion, db.Inspeccion.receta_id == db.Receta.id)
+              .where(db.Inspeccion.operador_id == u.id)
+              .group_by(db.Receta.nombre)
+              .order_by(func.count(db.Inspeccion.id).desc()))
+        if desde:
+            qr = qr.where(db.Inspeccion.fecha_hora >= _a_utc_naive(datetime.fromisoformat(desde)))
+        if hasta:
+            qr = qr.where(db.Inspeccion.fecha_hora
+                          < _a_utc_naive(datetime.fromisoformat(hasta) + timedelta(days=1)))
+        recetas = [{"receta": r[0], "total": int(r[1]), "aprobadas": int(r[2] or 0),
+                    "pct": round(100 * int(r[2] or 0) / int(r[1]), 1) if r[1] else 0}
+                   for r in s.execute(qr).all()]
+
+        ql = (select(db.Lote.codigo, func.count(db.Inspeccion.id))
+              .join(db.Inspeccion, db.Inspeccion.lote_id == db.Lote.id)
+              .where(db.Inspeccion.operador_id == u.id)
+              .group_by(db.Lote.codigo))
+        if desde:
+            ql = ql.where(db.Inspeccion.fecha_hora >= _a_utc_naive(datetime.fromisoformat(desde)))
+        if hasta:
+            ql = ql.where(db.Inspeccion.fecha_hora
+                          < _a_utc_naive(datetime.fromisoformat(hasta) + timedelta(days=1)))
+        lotes = [{"lote": r[0], "total": int(r[1])} for r in s.execute(ql).all()]
+
+        total = int(total or 0)
+        aprob = int(aprob or 0)
+        return {
+            "username": u.username, "nombre": u.nombre, "rol": u.rol.nombre,
+            "total": total, "aprobadas": aprob,
+            "rechazadas": int(rech or 0), "sin_receta": int(sin or 0),
+            "aprobacion_pct": round(100 * aprob / total, 1) if total else 0,
+            "angulo_medio": round(float(ang), 1) if ang is not None else None,
+            "angulo_min": round(float(amin), 1) if amin is not None else None,
+            "angulo_max": round(float(amax), 1) if amax is not None else None,
+            "duracion_media_ms": int(dur) if dur else None,
+            "recetas": recetas, "lotes": lotes,
+        }
+
+    with db.SesionLocal() as s:
+        uno, otro = perfil(s, a), perfil(s, b)
+
+    def mejor(clave, mayor=True):
+        va, vb = uno.get(clave) or 0, otro.get(clave) or 0
+        if va == vb:
+            return "empate"
+        return a if (va > vb) == mayor else b
+
+    comunes = sorted({r["receta"] for r in uno["recetas"]} & {r["receta"] for r in otro["recetas"]})
+    solo_a = sorted({r["receta"] for r in uno["recetas"]} - {r["receta"] for r in otro["recetas"]})
+    solo_b = sorted({r["receta"] for r in otro["recetas"]} - {r["receta"] for r in uno["recetas"]})
+
+    return {
+        "periodo": {"desde": desde, "hasta": hasta},
+        "operadores": [uno, otro],
+        "veredicto": {
+            "volumen": mejor("total"),
+            "calidad": mejor("aprobacion_pct"),
+            "velocidad": mejor("duracion_media_ms", mayor=False),
+        },
+        "recetas": {"comunes": comunes, "solo_a": solo_a, "solo_b": solo_b},
+    }
 
 
 def _detalle_legible(detalle) -> str:
@@ -936,7 +1073,7 @@ class AlarmaIn(BaseModel):
 
 @app.patch("/api/alarmas/{id}")
 def revisar_alarma(id: int, datos: AlarmaIn,
-                   usuario: dict = Depends(requiere("supervisor", "administrador"))):
+                   usuario: dict = Depends(requiere("supervisor", "administrador", permiso="editar_alarmas"))):
     if datos.estado not in ("pendiente", "en_revision", "solucionada"):
         raise HTTPException(422, "Estado inválido: pendiente, en_revision o solucionada")
     if datos.estado == "solucionada" and not (datos.solucion or "").strip():
@@ -960,7 +1097,7 @@ def revisar_alarma(id: int, datos: AlarmaIn,
 
 
 @app.get("/api/usuarios")
-def usuarios(usuario: dict = Depends(requiere("administrador"))):
+def usuarios(usuario: dict = Depends(requiere("administrador", permiso="gestionar_usuarios"))):
     with db.SesionLocal() as s:
         filas = s.scalars(select(db.Usuario).order_by(db.Usuario.username)).all()
         ahora_utc = datetime.now(timezone.utc)
@@ -970,7 +1107,7 @@ def usuarios(usuario: dict = Depends(requiere("administrador"))):
                              u.bloqueado_hasta.replace(tzinfo=timezone.utc) > ahora_utc)
             salida.append({"id": u.id, "username": u.username, "nombre": u.nombre,
                            "email": u.email, "rol": u.rol.nombre, "activo": u.activo,
-                           "bloqueado": bloqueado})
+                           "bloqueado": bloqueado, "permisos": _permisos_de(u)})
         return salida
 
 
@@ -991,7 +1128,7 @@ def _admins_activos(s, excluir: int | None = None) -> int:
 
 
 @app.post("/api/usuarios", status_code=201)
-def crear_usuario(datos: UsuarioIn, usuario: dict = Depends(requiere("administrador"))):
+def crear_usuario(datos: UsuarioIn, usuario: dict = Depends(requiere("administrador", permiso="gestionar_usuarios"))):
     with db.SesionLocal() as s:
         rol = s.scalar(select(db.Rol).where(db.Rol.nombre == datos.rol.strip().lower()))
         if not rol:
@@ -1023,7 +1160,7 @@ class ActivoIn(BaseModel):
 @app.patch("/api/usuarios/{id}")
 def activar_usuario(id: int, datos: ActivoIn | None = None,
                     activo: bool | None = None,
-                    usuario: dict = Depends(requiere("administrador"))):
+                    usuario: dict = Depends(requiere("administrador", permiso="gestionar_usuarios"))):
     with db.SesionLocal() as s:
         valor = datos.activo if datos is not None else activo
         if valor is None:
@@ -1050,7 +1187,7 @@ def activar_usuario(id: int, datos: ActivoIn | None = None,
 
 
 @app.delete("/api/usuarios/{id}", status_code=200)
-def borrar_usuario(id: int, usuario: dict = Depends(requiere("administrador"))):
+def borrar_usuario(id: int, usuario: dict = Depends(requiere("administrador", permiso="gestionar_usuarios"))):
     """Baja lógica: la cuenta deja de poder ingresar, pero su historial se conserva."""
     with db.SesionLocal() as s:
         u = s.get(db.Usuario, id)
@@ -1073,7 +1210,7 @@ def borrar_usuario(id: int, usuario: dict = Depends(requiere("administrador"))):
 
 
 @app.get("/api/auditoria")
-def auditoria(usuario: dict = Depends(requiere("supervisor", "administrador"))):
+def auditoria(usuario: dict = Depends(requiere("supervisor", "administrador", permiso="ver_auditoria"))):
     with db.SesionLocal() as s:
         filas = s.scalars(select(db.Auditoria).order_by(db.Auditoria.fecha.desc()).limit(50)).all()
         return [{"fecha": _iso(a.fecha), "accion": a.accion, "entidad": a.entidad,
@@ -1122,7 +1259,7 @@ def simular(receta_id: int | None = None,
             velocidad: float = simulador.VELOCIDAD_NOMINAL,
             modo: str = "dentro",
             forzar_fuera: bool = False,
-            usuario: dict = Depends(requiere("operador", "supervisor", "administrador"))):
+            usuario: dict = Depends(requiere("operador", "supervisor", "administrador", permiso="simular"))):
     if modo not in ("dentro", "fuera", "aleatorio"):
         raise HTTPException(422, "Modo inválido: use dentro, fuera o aleatorio")
     if forzar_fuera:                       # compatibilidad con la versión anterior

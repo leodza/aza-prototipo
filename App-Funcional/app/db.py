@@ -59,6 +59,7 @@ class Usuario(Base):
     pin_hash: Mapped[str] = mapped_column(Text, nullable=False)
     rol_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    permisos: Mapped[str | None] = mapped_column(Text)   # lista JSON de poderes extra
     intentos_fallidos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
@@ -243,7 +244,7 @@ def _columnas(s, tabla: str) -> set[str]:
 def migrar_columnas() -> list[str]:
     """Agrega las columnas nuevas a bases ya existentes (create_all no lo hace)."""
     nuevas = {
-        "usuarios": {"email": "VARCHAR(120)"},
+        "usuarios": {"email": "VARCHAR(120)", "permisos": "TEXT"},
         "alarmas": {"estado": "VARCHAR(15) DEFAULT 'pendiente'",
                     "solucion": "TEXT",
                     "resuelto_por": "INTEGER",

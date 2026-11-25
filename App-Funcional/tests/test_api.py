@@ -497,3 +497,55 @@ def test_login_sin_credenciales_expuestas():
     assert "lista-usuarios" not in html
     assert 'autocomplete="new-password"' in html
     assert 'autocomplete="off"' in html
+
+
+# --------------------------------------------------------------------------- #
+# comparador por pares y permisos granulares
+# --------------------------------------------------------------------------- #
+def test_comparador_por_pares(cliente):
+    d = _login(cliente, "jsarabia")
+    cab = {"Authorization": "Bearer " + d["access"]}
+    r = cliente.get("/api/estadisticas/comparar?a=jsarabia&b=ldaza", headers=cab)
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert len(cuerpo["operadores"]) == 2
+    assert cuerpo["operadores"][0]["username"] == "jsarabia"
+    assert "veredicto" in cuerpo and set(cuerpo["veredicto"]) == {"volumen", "calidad", "velocidad"}
+    assert "recetas" in cuerpo["operadores"][0]
+    assert "lotes" in cuerpo["operadores"][0]
+    assert isinstance(cuerpo["recetas"]["comunes"], list)
+
+
+def test_comparador_operador_inexistente(cliente):
+    d = _login(cliente, "jsarabia")
+    r = cliente.get("/api/estadisticas/comparar?a=jsarabia&b=nadie",
+                    headers={"Authorization": "Bearer " + d["access"]})
+    assert r.status_code == 404
+
+
+def test_permisos_granulares(cliente):
+    admin = _login(cliente, "dparedes")
+    cab = {"Authorization": "Bearer " + admin["access"]}
+    catalogo = cliente.get("/api/permisos", headers=cab).json()
+    assert len(catalogo) >= 8
+    usuario = next(u for u in cliente.get("/api/usuarios", headers=cab).json()
+                   if u["username"] == "ldaza")
+    # sin permiso: el operador no ve estadísticas
+    op = _login(cliente, "ldaza")
+    assert cliente.get("/api/estadisticas/operadores",
+                       headers={"Authorization": "Bearer " + op["access"]}).status_code == 403
+    # se lo concedemos
+    r = cliente.put(f"/api/usuarios/{usuario['id']}/permisos", headers=cab,
+                    json={"permisos": ["ver_estadisticas"]})
+    assert r.status_code == 200
+    op2 = _login(cliente, "ldaza")
+    cab2 = {"Authorization": "Bearer " + op2["access"]}
+    assert op2["usuario"]["permisos"] == ["ver_estadisticas"]
+    assert cliente.get("/api/estadisticas/operadores", headers=cab2).status_code == 200
+    # pero sigue sin poder gestionar respaldos
+    assert cliente.get("/api/respaldos", headers=cab2).status_code == 403
+    # se le quita
+    cliente.put(f"/api/usuarios/{usuario['id']}/permisos", headers=cab, json={"permisos": []})
+    op3 = _login(cliente, "ldaza")
+    assert cliente.get("/api/estadisticas/operadores",
+                       headers={"Authorization": "Bearer " + op3["access"]}).status_code == 403

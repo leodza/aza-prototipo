@@ -105,6 +105,18 @@ try:
         time.sleep(2.5)
         nav.captura(archivo)
 
+    nav.js("irA('estadisticas'); compararOperadores()")
+    time.sleep(3)
+    nav.js("window.scrollTo(0, document.body.scrollHeight)")
+    time.sleep(1)
+    nav.captura("50_comparador_pares.png")
+    nav.js("window.scrollTo(0, 0)")
+
+    nav.js("irA('usuarios'); abrirPermisos(1)")
+    time.sleep(2.5)
+    nav.captura("51_permisos_usuario.png")
+    nav.js("cerrarModal('modal-permisos')")
+
     nav.js("irA('recetas'); abrirModal('modal-receta')")
     time.sleep(1.5)
     nav.captura("44_modal_receta.png")

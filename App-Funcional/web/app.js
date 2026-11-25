@@ -137,11 +137,25 @@ function vistasPermitidas() {
     .map((b) => b.dataset.vista);
 }
 
+const PERMISO_POR_VISTA = {
+  simulador: "simular",
+  historico: "ver_historico",
+  auditoria: "ver_auditoria",
+  estadisticas: "ver_estadisticas",
+  recetas: "gestionar_recetas",
+  usuarios: "gestionar_usuarios",
+  respaldos: "gestionar_respaldos",
+  configuracion: "gestionar_configuracion",
+};
+
 function aplicarPermisos() {
   const rol = rolActual();
+  const permisos = (estado.usuario && estado.usuario.permisos) || [];
   document.querySelectorAll("nav button").forEach((b) => {
-    const permitido = !b.dataset.roles || b.dataset.roles.split(",").includes(rol);
-    b.classList.toggle("oculto", !permitido);
+    const porRol = !b.dataset.roles || b.dataset.roles.split(",").includes(rol);
+    const clave = PERMISO_POR_VISTA[b.dataset.vista];
+    const porPermiso = !!clave && permisos.includes(clave);
+    b.classList.toggle("oculto", !(porRol || porPermiso));
   });
   $("card-nuevo-usuario").classList.toggle("oculto", rol !== "administrador");
   const acciones = $("acciones-recetas");
@@ -184,7 +198,7 @@ function irA(vista) {
   if (vista === "usuarios") cargarUsuarios();
   if (vista === "alarmas") cargarAlarmas();
   if (vista === "configuracion") { cargarConfiguracion(); cargarSolicitudes(); }
-  if (vista === "estadisticas") cargarEstadisticas();
+  if (vista === "estadisticas") { cargarEstadisticas(); cargarSelectsOperadores(); }
   if (vista === "respaldos") cargarRespaldos();
   if (vista === "auditoria") cargarAuditoria();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -591,6 +605,7 @@ async function cargarUsuarios() {
         <td>${u.activo ? '<span class="estado aprobado">Activo</span>' : '<span class="estado rechazado">Inactivo</span>'}</td>
         <td>
           <div class="acciones">
+            <button class="btn sec" onclick="abrirPermisos(${u.id})">Permisos</button>
             <button class="btn sec" onclick="cambiarEstadoUsuario(${u.id}, ${!u.activo})">
               ${u.activo ? "Desactivar" : "Activar"}</button>
             ${u.activo ? `<button class="btn peligro-suave" onclick="borrarUsuario(${u.id}, '${esc(u.username)}')">Borrar</button>` : ""}
@@ -1067,5 +1082,180 @@ async function compararRespaldos() {
       <tbody>${filas}</tbody></table>`;
   } catch (e) {
     caja.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
+  }
+}
+
+/* ==================================================================== */
+/*  Comparador por pares de operadores                                 */
+/* ==================================================================== */
+let comparacionActual = null;
+
+async function cargarSelectsOperadores() {
+  try {
+    const d = await api("/api/estadisticas/operadores");
+    const opciones = d.map((o) => `<option value="${esc(o.username)}">${esc(o.nombre)}</option>`).join("");
+    ["cmp-operador-a", "cmp-operador-b"].forEach((id) => {
+      const sel = $(id);
+      if (sel) { sel.innerHTML = opciones; }
+    });
+    if ($("cmp-operador-b") && $("cmp-operador-b").options.length > 1) $("cmp-operador-b").selectedIndex = 1;
+  } catch (_) { }
+}
+
+async function compararOperadores() {
+  const caja = $("cmp-operadores-resultado");
+  const a = $("cmp-operador-a").value;
+  const b = $("cmp-operador-b").value;
+  if (!a || !b) { caja.innerHTML = `<div class="muted">Elige dos operadores.</div>`; return; }
+  if (a === b) { caja.innerHTML = `<div class="muted">Elige dos operadores distintos.</div>`; return; }
+  const q = new URLSearchParams({ a, b });
+  if ($("est-desde").value) q.set("desde", $("est-desde").value);
+  if ($("est-hasta").value) q.set("hasta", $("est-hasta").value);
+  try {
+    const d = await api("/api/estadisticas/comparar?" + q);
+    comparacionActual = d;
+    const [x, y] = d.operadores;
+    const fila = (etq, va, vb, mejor) => `
+      <tr><td>${etq}</td>
+        <td class="num mono ${mejor === "a" ? "gana" : ""}">${va}</td>
+        <td class="num mono ${mejor === "b" ? "gana" : ""}">${vb}</td></tr>`;
+    const recetasA = x.recetas.map((r) => `<li><b>${esc(r.receta)}</b> · ${r.total} (${num(r.pct)} %)</li>`).join("") || "<li class='muted'>—</li>";
+    const recetasB = y.recetas.map((r) => `<li><b>${esc(r.receta)}</b> · ${r.total} (${num(r.pct)} %)</li>`).join("") || "<li class='muted'>—</li>";
+
+    caja.innerHTML = `
+      <div class="dos-col" style="margin-top:16px">
+        <div class="card" style="margin:0">
+          <h3>${esc(x.nombre)}</h3>
+          <div class="sub mono">${esc(x.username)} · ${esc(x.rol)}</div>
+          <ul class="lista-simple">${recetasA}</ul>
+        </div>
+        <div class="card" style="margin:0">
+          <h3>${esc(y.nombre)}</h3>
+          <div class="sub mono">${esc(y.username)} · ${esc(y.rol)}</div>
+          <ul class="lista-simple">${recetasB}</ul>
+        </div>
+      </div>
+      <table style="margin-top:14px">
+        <thead><tr><th>Métrica</th><th class="num">${esc(x.nombre)}</th>
+          <th class="num">${esc(y.nombre)}</th></tr></thead>
+        <tbody>
+          ${fila("Inspecciones", x.total, y.total, d.veredicto.volumen === a ? "a" : d.veredicto.volumen === b ? "b" : "")}
+          ${fila("Aprobadas", x.aprobadas, y.aprobadas, "")}
+          ${fila("Rechazadas", x.rechazadas, y.rechazadas, "")}
+          ${fila("% aprobación", num(x.aprobacion_pct) + " %", num(y.aprobacion_pct) + " %",
+                 d.veredicto.calidad === a ? "a" : d.veredicto.calidad === b ? "b" : "")}
+          ${fila("Ángulo medio", x.angulo_medio === null ? "—" : num(x.angulo_medio) + "°",
+                 y.angulo_medio === null ? "—" : num(y.angulo_medio) + "°", "")}
+          ${fila("Rango de ángulo",
+                 x.angulo_min === null ? "—" : num(x.angulo_min) + "° – " + num(x.angulo_max) + "°",
+                 y.angulo_min === null ? "—" : num(y.angulo_min) + "° – " + num(y.angulo_max) + "°", "")}
+          ${fila("Tiempo medio", x.duracion_media_ms ? (x.duracion_media_ms / 1000).toFixed(1) + " s" : "—",
+                 y.duracion_media_ms ? (y.duracion_media_ms / 1000).toFixed(1) + " s" : "—",
+                 d.veredicto.velocidad === a ? "a" : d.veredicto.velocidad === b ? "b" : "")}
+        </tbody>
+      </table>
+      <div class="banner" style="margin-top:14px">
+        <strong>Veredicto:</strong>
+        volumen → <b>${esc(nombreDe(d.veredicto.volumen))}</b> ·
+        calidad → <b>${esc(nombreDe(d.veredicto.calidad))}</b> ·
+        velocidad → <b>${esc(nombreDe(d.veredicto.velocidad))}</b>
+      </div>
+      <div class="sub" style="margin-top:6px">
+        Recetas en común: ${d.recetas.comunes.length ? d.recetas.comunes.map(esc).join(", ") : "ninguna"} ·
+        solo ${esc(x.nombre)}: ${d.recetas.solo_a.length ? d.recetas.solo_a.map(esc).join(", ") : "—"} ·
+        solo ${esc(y.nombre)}: ${d.recetas.solo_b.length ? d.recetas.solo_b.map(esc).join(", ") : "—"}
+      </div>`;
+  } catch (e) {
+    caja.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
+  }
+}
+
+function nombreDe(username) {
+  if (!comparacionActual) return "empate";
+  const o = comparacionActual.operadores.find((x) => x.username === username);
+  return o ? o.nombre : "empate";
+}
+
+function descargarInformeComparacion() {
+  if (!comparacionActual) { alert("Primero compara dos operadores."); return; }
+  const d = comparacionActual;
+  const [x, y] = d.operadores;
+  const filas = (etq, va, vb) => `<tr><td>${etq}</td><td>${va}</td><td>${vb}</td></tr>`;
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+    <title>Comparación de operadores · AZA Analyzer</title>
+    <style>
+      body{font-family:Segoe UI,system-ui,sans-serif;color:#111;margin:38px;font-size:13px}
+      h1{font-size:20px;margin:0 0 4px} .sub{color:#555;margin-bottom:18px}
+      table{width:100%;border-collapse:collapse;margin:12px 0}
+      th,td{border:1px solid #ccc;padding:7px 9px;text-align:left}
+      th{background:#eee} td:nth-child(2),td:nth-child(3){text-align:right}
+      .box{border:1px solid #ccc;padding:10px 12px;border-radius:6px;margin-top:10px}
+    </style></head><body>
+    <h1>Comparación de operadores</h1>
+    <div class="sub">AZA Analyzer · ${new Date().toLocaleString("es-CL")}
+      ${d.periodo.desde || d.periodo.hasta
+        ? " · período " + (d.periodo.desde || "inicio") + " a " + (d.periodo.hasta || "hoy") : ""}</div>
+    <table>
+      <tr><th>Métrica</th><th>${esc(x.nombre)}</th><th>${esc(y.nombre)}</th></tr>
+      ${filas("Inspecciones", x.total, y.total)}
+      ${filas("Aprobadas", x.aprobadas, y.aprobadas)}
+      ${filas("Rechazadas", x.rechazadas, y.rechazadas)}
+      ${filas("% aprobación", x.aprobacion_pct + " %", y.aprobacion_pct + " %")}
+      ${filas("Ángulo medio", (x.angulo_medio ?? "—") + "°", (y.angulo_medio ?? "—") + "°")}
+      ${filas("Tiempo medio", x.duracion_media_ms ? (x.duracion_media_ms / 1000).toFixed(1) + " s" : "—",
+              y.duracion_media_ms ? (y.duracion_media_ms / 1000).toFixed(1) + " s" : "—")}
+    </table>
+    <div class="box"><b>Recetas usadas por ${esc(x.nombre)}:</b>
+      ${x.recetas.map((r) => `${esc(r.receta)} (${r.total})`).join(", ") || "—"}</div>
+    <div class="box"><b>Recetas usadas por ${esc(y.nombre)}:</b>
+      ${y.recetas.map((r) => `${esc(r.receta)} (${r.total})`).join(", ") || "—"}</div>
+    <div class="box"><b>Veredicto:</b> volumen → ${esc(nombreDe(d.veredicto.volumen))} ·
+      calidad → ${esc(nombreDe(d.veredicto.calidad))} ·
+      velocidad → ${esc(nombreDe(d.veredicto.velocidad))}</div>
+    </body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `comparacion-${x.username}-vs-${y.username}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ==================================================================== */
+/*  Permisos por usuario                                               */
+/* ==================================================================== */
+let usuarioPermisos = null;
+
+async function abrirPermisos(id) {
+  const u = (estado.usuarios || []).find((x) => x.id === id);
+  if (!u) return;
+  usuarioPermisos = id;
+  $("perm-titulo").textContent = "Permisos de " + u.nombre;
+  $("perm-msg").textContent = "";
+  try {
+    const catalogo = await api("/api/permisos");
+    $("perm-lista").innerHTML = catalogo.map((p) => `
+      <label class="perm-item">
+        <input type="checkbox" value="${p.clave}" ${(u.permisos || []).includes(p.clave) ? "checked" : ""}>
+        <span><b>${esc(p.clave)}</b><br><small class="muted">${esc(p.descripcion)}</small></span>
+      </label>`).join("");
+    abrirModal("modal-permisos");
+  } catch (e) {
+    $("perm-msg").textContent = e.message;
+  }
+}
+
+async function guardarPermisos() {
+  if (!usuarioPermisos) return;
+  const marcados = [...document.querySelectorAll("#perm-lista input:checked")].map((i) => i.value);
+  try {
+    await api(`/api/usuarios/${usuarioPermisos}/permisos`, {
+      method: "PUT", body: JSON.stringify({ permisos: marcados }),
+    });
+    cerrarModal("modal-permisos");
+    await cargarUsuarios();
+    alert("Permisos actualizados. El usuario los verá al volver a iniciar sesión.");
+  } catch (e) {
+    $("perm-msg").textContent = "✗ " + e.message;
   }
 }
